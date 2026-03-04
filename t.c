@@ -43,9 +43,15 @@ int open_listen_socket(char *host, char *port, int backlog, struct sockaddr *sa)
         freeaddrinfo(ai);
         return -1;
     }
-    z = connect(fd, ai->ai_addr, ai->ai_addrlen);
+    z = bind(fd, ai->ai_addr, ai->ai_addrlen);
     if (z == -1) {
-        fprintf(stderr, "connect(): %s\n", strerror(errno));
+        fprintf(stderr, "bind(): %s\n", strerror(errno));
+        freeaddrinfo(ai);
+        return -1;
+    }
+    z = listen(fd, backlog);
+    if (z == -1) {
+        fprintf(stderr, "listen(): %s\n", strerror(errno));
         freeaddrinfo(ai);
         return -1;
     }
