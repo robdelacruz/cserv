@@ -19,7 +19,7 @@ typedef struct {
     String *items;
     u16 len;
     u16 cap;
-    int isfreeitems;
+    i8 isfreeitems;
 } StringList;
 
 typedef struct {

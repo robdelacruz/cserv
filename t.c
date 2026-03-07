@@ -105,62 +105,85 @@ int read_sock(int fd, Buffer *buf) {
 typedef struct _Client {
     int fd;
     Buffer buf;
-    struct _Client *next;
 } Client;
 
-Client *client_head = NULL;
+typedef struct {
+    Client *items;
+    u16 len;
+    u16 cap;
+    i8 isfreeitems;
+} ClientArray;
 
-Client *add_new_client(int clientfd, Client **head) {
-    Client *client = (Client *) malloc(sizeof(Client));
-    client->fd = clientfd;
-    client->buf = BufferNew(4096);
-    client->next = NULL;
-    if (*head == NULL) {
-        *head = client;
-    } else {
-        Client *node = *head;
-        while (node->next != NULL)
-            node = node->next;
-        node->next = client;
-    }
+Client ClientNew(int fd) {
+    Client client;
+    client.fd = fd;
+    client.buf = BufferNew(4096);
     return client;
 }
-
-void remove_client(int clientfd, Client **head) {
-    Client *node = *head;
-    Client *prev = NULL;
-    while (node != NULL) {
-        if (node->fd == clientfd) {
-            if (prev == NULL)
-                *head = node->next;
-            else
-                prev->next = node->next;
-            BufferFree(&node->buf);
-            free(node);
-            break;
-        }
-        prev = node;
-        node = node->next;
-    }
+void ClientFree(Client *client) {
+    client->fd = 0;
+    BufferFree(&client->buf);
 }
 
-Client *find_client(int clientfd, Client *head) {
-    Client *client = head;
-    while (client != NULL) {
-        if (client->fd == clientfd)
-            break;
-        client = client->next;
-    }
-    return client;
+ClientArray ClientArrayNew(u16 cap) {
+    ClientArray ca;
+    if (cap == 0)
+        cap = 32;
+    ca.items = (Client *) malloc(sizeof(Client)*cap);
+    memset(ca.items, 0, sizeof(Client)*cap);
+    ca.len = 0;
+    ca.cap = cap;
+    ca.isfreeitems = 0;
+    return ca;
 }
+void ClientArrayFree(ClientArray *ca) {
+    if (ca->isfreeitems) {
+        for (int i=0; i < ca->len; i++)
+            ClientFree(&ca->items[i]);
+    }
+    free(ca->items);
+    ca->items = 0;
+    ca->len = 0;
+}
+void ClientArrayClear(ClientArray *ca) {
+    memset(ca->items, 0, sizeof(sizeof(Client)*ca->len));
+    ca->len = 0;
+}
+void ClientArrayAppend(ClientArray *ca, Client client) {
+    assert(ca->len <= ca->cap);
+
+    // Double the capacity if more space needed.
+    if (ca->len == ca->cap) {
+        ca->items = (Client *) realloc(ca->items, sizeof(Client)*ca->cap * 2);
+        memset(ca->items + sizeof(Client)*ca->cap, 0, sizeof(Client)*ca->cap);
+        ca->cap *= 2;
+    }
+    assert(ca->len < ca->cap);
+
+    ca->items[ca->len] = client;
+    ca->len++;
+}
+void ClientArrayRemove(ClientArray *ca, int fd) {
+    int i;
+    for (i=0; i < ca->len; i++) {
+        if (ca->items[i].fd == fd)
+            break;
+    }
+    if (i == ca->len)
+        return;
+    // Move last item to the spot where the deleted item is.
+    ca->items[i] = ca->items[ca->len-1];
+
+    memset(&ca->items[ca->len-1], 0, sizeof(Client));
+    ca->len--;
+}
+
+ClientArray _clients;
 
 void print_clients() {
     printf("Clients: ");
-    Client *client = client_head;
-    while (client != NULL) {
-        printf("%d ", client->fd);
-        client = client->next;
-    }
+    for (int i=0; i < _clients.len; i++)
+        printf("%d ", _clients.items[i].fd);
     printf("\n");
 }
 
@@ -190,6 +213,8 @@ int main(int argc, char *argv[]) {
 
     FD_SET(s0, &readfds);
     maxfd = s0;
+
+    _clients = ClientArrayNew(255);
 
     fd_set tmp_readfds, tmp_writefds;
     while (1) {
@@ -222,12 +247,17 @@ int main(int argc, char *argv[]) {
                     if (clientfd > maxfd)
                         maxfd = clientfd;
 
-                    add_new_client(clientfd, &client_head);
+                    Client client = ClientNew(clientfd);
+                    ClientArrayAppend(&_clients, client);
                 } else {
                     int clientfd = i;
                     fprintf(stderr, "Received data from client %d\n", clientfd);
 
-                    Client *client = find_client(clientfd, client_head);
+                    Client *client = NULL;
+                    for (int i=0; i < _clients.len; i++) {
+                        if (_clients.items[i].fd == clientfd)
+                            client = &_clients.items[i];
+                    }
                     if (client == NULL) {
                         fprintf(stderr, "Can't find client buffer %d\n", clientfd);
                         continue;
@@ -238,7 +268,7 @@ int main(int argc, char *argv[]) {
                         // Client socket closed, close socket and remove client from list.
                         fprintf(stderr, "Client %d closed\n", clientfd);
 
-                        remove_client(clientfd, &client_head);
+                        ClientArrayRemove(&_clients, clientfd);
                         FD_CLR(clientfd, &readfds);
                         close(clientfd);
                     }
