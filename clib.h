@@ -1,3 +1,6 @@
+#ifndef CLIB_H
+#define CLIB_H
+
 #define countof(v) (sizeof(v) / sizeof((v)[0]))
 #define memzero(p, v) (memset(p, 0, sizeof(v)))
 
@@ -50,3 +53,4 @@ void BufferFree(Buffer *buf);
 void BufferClear(Buffer *buf);
 void BufferAppend(Buffer *buf, char *bs, u32 bslen);
 
+#endif

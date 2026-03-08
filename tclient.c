@@ -60,7 +60,7 @@ int main(int argc, char *argv[]) {
     sendTextMessage(sock, "abc");
     sendTextMessage(sock, "def");
     sendTextMessage(sock, "Z");
-    sendZeroMessage(sock);
+    //sendZeroMessage(sock);
     sendTextMessage(sock, "abc");
 
 //    printf("Receiving response...\n");
@@ -72,6 +72,7 @@ int main(int argc, char *argv[]) {
 //    respmsg[z] = '\0';
 //    printf("%s", respmsg);
 
+    sleep(10);
     z = close(sock);
     return 0;
 }
