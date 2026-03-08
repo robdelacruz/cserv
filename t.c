@@ -105,6 +105,7 @@ int read_sock(int fd, Buffer *buf) {
 typedef struct _Client {
     int fd;
     Buffer buf;
+    u16 blk_len;
 } Client;
 
 typedef struct {
@@ -118,6 +119,7 @@ Client ClientNew(int fd) {
     Client client;
     client.fd = fd;
     client.buf = BufferNew(4096);
+    client.blk_len = 0;
     return client;
 }
 void ClientFree(Client *client) {
@@ -177,6 +179,13 @@ void ClientArrayRemove(ClientArray *ca, int fd) {
     memset(&ca->items[ca->len-1], 0, sizeof(Client));
     ca->len--;
 }
+Client *ClientArrayFind(ClientArray *ca, int fd) {
+    for (int i=0; i < ca->len; i++) {
+        if (ca->items[i].fd == fd)
+            return &ca->items[i];
+    }
+    return NULL;
+}
 
 ClientArray _clients;
 
@@ -185,6 +194,10 @@ void print_clients() {
     for (int i=0; i < _clients.len; i++)
         printf("%d ", _clients.items[i].fd);
     printf("\n");
+}
+
+void process_block(int clientfd, char *blk, u16 blk_len) {
+    printf("Client %d received block '%.*s'\n", clientfd, blk_len, blk);
 }
 
 int main(int argc, char *argv[]) {
@@ -220,7 +233,7 @@ int main(int argc, char *argv[]) {
     while (1) {
         tmp_readfds = readfds;
         tmp_writefds = writefds;
-        fprintf(stderr, "select()...\n");
+        //fprintf(stderr, "select()...\n");
         z = select(maxfd+1, &tmp_readfds, &tmp_writefds, NULL, NULL);
         if (z == 0) // timeout
             continue;
@@ -253,25 +266,66 @@ int main(int argc, char *argv[]) {
                     int clientfd = i;
                     fprintf(stderr, "Received data from client %d\n", clientfd);
 
-                    Client *client = NULL;
-                    for (int i=0; i < _clients.len; i++) {
-                        if (_clients.items[i].fd == clientfd)
-                            client = &_clients.items[i];
-                    }
+                    Client *client = ClientArrayFind(&_clients, clientfd);
                     if (client == NULL) {
                         fprintf(stderr, "Can't find client buffer %d\n", clientfd);
                         continue;
                     }
 
-                    z = read_sock(clientfd, &client->buf);
-                    if (z == 0) {
-                        // Client socket closed, close socket and remove client from list.
-                        fprintf(stderr, "Client %d closed\n", clientfd);
+                    int close_client = 0;
+                    if (read_sock(clientfd, &client->buf) == 0)
+                        close_client = 1;
 
+                    // Message format:
+                    // [block 1], [block 2], ... [0]
+                    //
+                    // [u16] block length
+                    // [block length bytes] block body
+                    // [u16] next block length
+                    // [next block length bytes] next block body
+                    // [u16] 0 (zero block length, end of blocks)
+
+                    Buffer *buf = &client->buf;
+                    while (1) {
+                        //printf("buf->len: %ld buf->cur: %ld\n", buf->len, buf->cur);
+                        if (client->blk_len == 0) {
+                            // Read block length
+                            if (buf->len-buf->cur >= sizeof(u16)) {
+                                u16 *bs = (u16 *) &buf->bs[buf->cur];
+                                u16 blk_len = ntohs(*bs);
+                                if (blk_len == 0) {
+                                    // End of blocks
+                                    printf("Client %d end transmission\n", clientfd);
+                                    close_client = 1;
+                                    break;
+                                }
+
+                                client->blk_len = blk_len;
+                                buf->cur += sizeof(u16);
+                                continue;
+                            } else {
+                                break;
+                            }
+                        } else {
+                            // Read block body (blk_len bytes)
+                            if (buf->len-buf->cur >= client->blk_len) {
+                                process_block(clientfd, buf->bs+buf->cur, client->blk_len);
+                                buf->cur += client->blk_len;
+                                client->blk_len = 0;
+                                continue;
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+
+                    if (close_client) {
+                        fprintf(stderr, "Close client %d\n", clientfd);
                         ClientArrayRemove(&_clients, clientfd);
                         FD_CLR(clientfd, &readfds);
                         close(clientfd);
                     }
+
                 }
             }
         }
