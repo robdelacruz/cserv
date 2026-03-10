@@ -107,6 +107,7 @@ int write_sock(int fd, Buffer *buf) {
                  buf->bs + buf->cur,
                  buf->len - buf->cur,
                  MSG_DONTWAIT | MSG_NOSIGNAL);
+        printf("write_sock() z: %d\n", z);
         if (z == -1 && errno == EINTR)
             continue;
         if (z == -1 && (errno == EAGAIN || errno == EWOULDBLOCK))

@@ -157,12 +157,9 @@ int main(int argc, char *argv[]) {
                                 readbuf->cur += client->blk_len;
                                 client->blk_len = 0;
 
-                                // Send any client->writebuf data to client.
-                                if (writebuf->len > writebuf_org_len) {
-                                    write_sock(clientfd, writebuf);
-                                    BufferResetFromCur(writebuf);
+                                // client->writebuf contains response, if any
+                                if (writebuf->len > writebuf_org_len)
                                     FD_SET(clientfd, &writefds);
-                                }
 
                                 continue;
                             } else {
@@ -191,7 +188,7 @@ int main(int argc, char *argv[]) {
             }
             if (FD_ISSET(i, &tmp_writefds)) {
                 int clientfd = i;
-                fprintf(stderr, "Sending data to client %d\n", clientfd);
+//                fprintf(stderr, "Sending data to client %d\n", clientfd);
 
                 Client *client = ClientArrayFind(&_clients, clientfd);
                 if (client == NULL) {
