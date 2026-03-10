@@ -52,5 +52,6 @@ Buffer BufferNew(u32 cap);
 void BufferFree(Buffer *buf);
 void BufferClear(Buffer *buf);
 void BufferAppend(Buffer *buf, char *bs, u32 bslen);
+void BufferResetFromCur(Buffer *buf);
 
 #endif

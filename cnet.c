@@ -94,17 +94,47 @@ int read_sock(int fd, Buffer *buf) {
     }
     return 1;
 }
+// Nonblocking socket write from buf.
+// Returns  0 for all bytes sent
+//         -1 if error occured (check errno)
+//          1 for partial bytes sent, buf->cur points to unsent data
+int write_sock(int fd, Buffer *buf) {
+    int z;
+    while (1) {
+        if (buf->len - buf->cur <= 0)
+            return 0;
+        z = send(fd,
+                 buf->bs + buf->cur,
+                 buf->len - buf->cur,
+                 MSG_DONTWAIT | MSG_NOSIGNAL);
+        if (z == -1 && errno == EINTR)
+            continue;
+        if (z == -1 && (errno == EAGAIN || errno == EWOULDBLOCK))
+            return 1;
+        if (z == -1) {
+            fprintf(stderr, "send() on socket %d: %s\n", fd, strerror(errno));
+            return -1; 
+        }
+        assert(z > 0);
+        buf->cur += z;
+    }
+    return 1;
+}
 
 Client ClientNew(int fd) {
     Client client;
     client.fd = fd;
-    client.buf = BufferNew(4096);
+    client.readbuf = BufferNew(4096);
+    client.writebuf = BufferNew(4096);
     client.blk_len = 0;
+    client.shut_rd = 0;
+    client.shut_wr = 0;
     return client;
 }
 void ClientFree(Client *client) {
     client->fd = 0;
-    BufferFree(&client->buf);
+    BufferFree(&client->readbuf);
+    BufferFree(&client->writebuf);
 }
 
 ClientArray ClientArrayNew(u16 cap) {
@@ -115,7 +145,7 @@ ClientArray ClientArrayNew(u16 cap) {
     memset(ca.items, 0, sizeof(Client)*cap);
     ca.len = 0;
     ca.cap = cap;
-    ca.isfreeitems = 0;
+    ca.isfreeitems = 1;
     return ca;
 }
 void ClientArrayFree(ClientArray *ca) {

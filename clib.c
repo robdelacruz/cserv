@@ -197,5 +197,19 @@ void BufferAppend(Buffer *buf, char *bs, u32 bslen) {
     memcpy(buf->bs + buf->len, bs, bslen);
     buf->len += bslen;
 }
+// Reset buffer to start from buf->cur.
+void BufferResetFromCur(Buffer *buf) {
+    assert(buf->len <= buf->cap);
+    assert(buf->cur <= buf->len);
+    if (buf->cur > buf->len)
+        return;
+
+    memcpy(buf->bs,
+           buf->bs + buf->cur,
+           buf->len - buf->cur);
+    buf->len = buf->len - buf->cur;
+    memset(buf->bs + buf->len, 0, buf->cap - buf->len);
+    buf->cur = 0;
+}
 
 

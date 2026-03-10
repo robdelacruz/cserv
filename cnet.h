@@ -13,8 +13,11 @@
 
 typedef struct _Client {
     int fd;
-    Buffer buf;
+    Buffer readbuf;
+    Buffer writebuf;
     u16 blk_len;
+    int shut_rd;
+    int shut_wr;
 } Client;
 
 typedef struct {
@@ -27,6 +30,7 @@ typedef struct {
 int open_listen_socket(char *host, char *port, int backlog, struct sockaddr *sa);
 String make_ipaddr_string(struct sockaddr *sa);
 int read_sock(int fd, Buffer *buf);
+int write_sock(int fd, Buffer *buf);
 
 Client ClientNew(int fd);
 void ClientFree(Client *client);

@@ -72,7 +72,7 @@ int main(int argc, char *argv[]) {
 //    respmsg[z] = '\0';
 //    printf("%s", respmsg);
 
-    sleep(10);
+    sleep(2);
     z = close(sock);
     return 0;
 }
