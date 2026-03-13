@@ -56,11 +56,12 @@ int main(int argc, char *argv[]) {
 
     int backlog = 50;
     struct sockaddr sa;
-    int s0 = open_listen_socket(host, port, backlog, &sa);
+    int s0 = OpenListenSocket(host, port, backlog, &sa);
     if (s0 == -1)
         exit(1);
 
-    String ipaddr = make_ipaddr_string(&sa);
+    String ipaddr = StringNew("");
+    GetTextIPAddress(&sa, &ipaddr);
     printf("Listening on %.*s port %s...\n", ipaddr.len, ipaddr.bs, port);
     StringFree(&ipaddr);
 
@@ -118,7 +119,7 @@ int main(int argc, char *argv[]) {
                     }
 
                     int read_eof = 0;
-                    if (read_sock(clientfd, &client->readbuf) == 0)
+                    if (NetRecv(clientfd, &client->readbuf) == 0)
                         read_eof = 1;
 
                     // Message format:
@@ -197,7 +198,7 @@ int main(int argc, char *argv[]) {
                 }
 
                 Buffer *writebuf = &client->writebuf;
-                write_sock(clientfd, writebuf);
+                NetSend(clientfd, writebuf);
                 BufferResetFromCur(writebuf);
 
                 // Remove client if no remaining reads and writes.

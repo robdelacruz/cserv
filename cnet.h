@@ -27,10 +27,11 @@ typedef struct {
     i8 isfreeitems;
 } ClientArray;
 
-int open_listen_socket(char *host, char *port, int backlog, struct sockaddr *sa);
-String make_ipaddr_string(struct sockaddr *sa);
-int read_sock(int fd, Buffer *buf);
-int write_sock(int fd, Buffer *buf);
+int OpenListenSocket(char *host, char *port, int backlog, struct sockaddr *sa);
+int OpenConnectSocket(char *host, char *port, int backlog, struct sockaddr *sa);
+void GetTextIPAddress(struct sockaddr *sa, String *dest);
+int NetRecv(int fd, Buffer *buf);
+int NetSend(int fd, Buffer *buf);
 
 Client ClientNew(int fd);
 void ClientFree(Client *client);
