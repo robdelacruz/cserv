@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <assert.h>
+#include <stdarg.h>
 
 #include "clib.h"
 #include "cnet.h"
@@ -158,6 +159,117 @@ int NetSend(int fd, Buffer *buf) {
         buf->cur += z;
     }
     return 1;
+}
+
+// NetPack(buf, "BUF %b %w %l %s", n1, n2, n3, "abc");
+void NetPack(Buffer *buf, char *fmt, ...) {
+    int state = 0;  // 0: none, 1: prev '%'
+    va_list args;
+
+    va_start(args, fmt);
+    for (char *pfmt = fmt; *pfmt != 0; pfmt++) {
+        if (state == 0) {
+            if (*pfmt == '%') {
+                state = 1;
+                continue;
+            }
+            BufferAppendChar(buf, *pfmt);
+            continue;
+        }
+        if (state == 1) {
+            if (*pfmt == 'b') {
+                u8 ch = va_arg(args, int);
+                BufferAppendChar(buf, ch);
+            } else if (*pfmt == 'w') {
+                u16 w = va_arg(args, int);
+                BufferAppendChar(buf, w >> 8);
+                BufferAppendChar(buf, w);
+            } else if (*pfmt == 'l') {
+                u32 l = va_arg(args, u32);
+                BufferAppendChar(buf, l >> 24);
+                BufferAppendChar(buf, l >> 16);
+                BufferAppendChar(buf, l >> 8);
+                BufferAppendChar(buf, l);
+            } else if (*pfmt == 's') {
+                char *s = va_arg(args, char *);
+                u16 slen = strlen(s);
+                BufferAppendChar(buf, slen >> 8);
+                BufferAppendChar(buf, slen);
+                BufferAppend(buf, s, slen);
+            } else {
+                // Ignore any unsupported %? spec
+            }
+            state = 0;
+            continue;
+        }
+    }
+    va_end(args);
+}
+
+// NetUnpack(buf, "BUF %b %w %l %s", &n1, &n2, &n3, s1);
+void NetUnpack(char *blk, int blklen, char *fmt, ...) {
+    int state = 0;  // 0: none, 1: prev '%'
+    va_list args;
+
+    va_start(args, fmt);
+    char *pblk = blk;
+    char *maxp = blk + blklen - 1;
+    for (char *pfmt = fmt; *pfmt != 0; pfmt++) {
+        if (pblk > maxp) return;
+
+        if (state == 0) {
+            if (*pfmt == '%') {
+                state = 1;
+                continue;
+            }
+            pblk++;
+            if (pblk > maxp) return;
+            continue;
+        }
+        if (state == 1) {
+            if (*pfmt == 'b') {
+                u8 *ch = va_arg(args, u8*);
+                *ch = *pblk;
+                pblk++;
+                if (pblk > maxp) return;
+            } else if (*pfmt == 'w') {
+                u16 *w = va_arg(args, u16*);
+                *w = *pblk << 8;
+                pblk++;
+                if (pblk > maxp) return;
+                *w |= *pblk;
+                pblk++;
+            } else if (*pfmt == 'l') {
+                u32 *l = va_arg(args, u32 *);
+                *l = *pblk << 24;
+                pblk++;
+                if (pblk > maxp) return;
+                *l |= *pblk << 16;
+                pblk++;
+                if (pblk > maxp) return;
+                *l |= *pblk << 8;
+                pblk++;
+                if (pblk > maxp) return;
+                *l |= *pblk;
+                pblk++;
+            } else if (*pfmt == 's') {
+                String *str = (String *) va_arg(args, void *);
+                u16 slen = *pblk << 8;
+                pblk++;
+                if (pblk > maxp) return;
+                slen |= *pblk;
+                pblk++;
+                if (pblk > maxp) return;
+                StringAssignFromBytes(str, pblk, slen);
+                pblk += slen;
+            } else {
+                // Ignore any unsupported %? spec
+            }
+            state = 0;
+            continue;
+        }
+    }
+    va_end(args);
 }
 
 Client ClientNew(int fd) {

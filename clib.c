@@ -202,12 +202,7 @@ void BufferAppend(Buffer *buf, char *bs, u32 bslen) {
     buf->len += bslen;
 }
 void BufferAppendChar(Buffer *buf, unsigned char c) {
-    assert(buf->len <= buf->cap);
-
-    char bs[2];
-    bs[0] = c;
-    bs[1] = 0;
-    BufferAppend(buf, bs, 1);
+    BufferAppend(buf, &c, 1);
 }
 // Reset buffer to start from buf->cur.
 void BufferResetFromCur(Buffer *buf) {
