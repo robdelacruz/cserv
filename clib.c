@@ -70,6 +70,10 @@ void StringAssign(String *str, char *s) {
     StringFree(str);
     *str = StringNew(s);
 }
+void StringAssignFromBytes(String *str, char *bs, int bslen) {
+    StringFree(str);
+    *str = StringNewFromBytes(bs, bslen);
+}
 int StringSearch(String str, int startpos, char *searchstr) {
     int searchstr_len = strlen(searchstr);
     for (int i=startpos; i < str.len; i++) {
@@ -196,6 +200,14 @@ void BufferAppend(Buffer *buf, char *bs, u32 bslen) {
 
     memcpy(buf->bs + buf->len, bs, bslen);
     buf->len += bslen;
+}
+void BufferAppendChar(Buffer *buf, unsigned char c) {
+    assert(buf->len <= buf->cap);
+
+    char bs[2];
+    bs[0] = c;
+    bs[1] = 0;
+    BufferAppend(buf, bs, 1);
 }
 // Reset buffer to start from buf->cur.
 void BufferResetFromCur(Buffer *buf) {

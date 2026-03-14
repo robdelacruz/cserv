@@ -9,6 +9,9 @@ all: t
 t: $(SOURCE)
 	gcc -o $@ $^ $(LIBS)
 
+t2: t2.c clib.c
+	gcc -o $@ $^
+
 clean:
 	rm -rf t
 

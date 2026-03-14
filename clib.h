@@ -41,6 +41,7 @@ String StringDup(String src);
 String StringFormat(const char *fmt, ...);
 void StringAppend(String *str, char *s);
 void StringAssign(String *str, char *s);
+void StringAssignFromBytes(String *str, char *bs, int bslen);
 int StringSearch(String str, int startpos, char *searchstr);
 StringList StringSplit(String str, char *sep);
 
@@ -52,6 +53,7 @@ Buffer BufferNew(u32 cap);
 void BufferFree(Buffer *buf);
 void BufferClear(Buffer *buf);
 void BufferAppend(Buffer *buf, char *bs, u32 bslen);
+void BufferAppendChar(Buffer *buf, unsigned char c);
 void BufferResetFromCur(Buffer *buf);
 
 #endif
