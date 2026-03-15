@@ -10,70 +10,122 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 
+#include "clib.h"
+#include "cnet.h"
+
 ssize_t sendbytes(int sock, char *buf, size_t count);
 ssize_t recvbytes(int sock, char *buf, size_t count);
 void sendTextMessage(int sock, char *msg);
 void sendZeroMessage(int sock);
 
+void server_sent_block(int serverfd, char *blk, u16 blk_len, Buffer *writebuf) {
+    printf("Server %d received block '%.*s'\n", serverfd, blk_len, blk);
+}
+void server_end_transmission(int serverfd) {
+    fprintf(stderr, "Server %d end transmission\n", serverfd);
+}
+
 int main(int argc, char *argv[]) {
     int z;
-    int sock;
+    char *serverhost = "localhost";
+    char *serverport = "8000";
 
-    if (argc < 3) {
-        printf("Usage: tclient <server domain> <port>\n");
-        printf("Ex. tclient 127.0.0.1 5000\n");
+    int backlog = 50;
+    struct sockaddr sa;
+    int serverfd = OpenConnectSocket(serverhost, serverport, backlog, &sa);
+    if (serverfd == -1)
         exit(1);
+
+    String ipaddr = StringNew("");
+    GetTextIPAddress(&sa, &ipaddr);
+    printf("Connected to %.*s port %s...\n", ipaddr.len, ipaddr.bs, serverport);
+    StringFree(&ipaddr);
+
+    fd_set readfds, writefds;
+    FD_ZERO(&readfds);
+    FD_ZERO(&writefds);
+    FD_SET(serverfd, &readfds);
+
+    Buffer readbuf = BufferNew(4096);
+    Buffer writebuf = BufferNew(4096);
+    int blk_len = 0;
+    int shut_rd = 0;
+
+    fd_set tmp_readfds, tmp_writefds;
+    while (1) {
+        tmp_readfds = readfds;
+        tmp_writefds = writefds;
+        z = select(serverfd+1, &tmp_readfds, &tmp_writefds, NULL, NULL);
+        if (z == 0) // timeout
+            continue;
+        if (z == -1 && errno == EINTR)
+            continue;
+        if (z == -1) {
+            fprintf(stderr, "select(): %s\n", strerror(errno));
+            break;
+        }
+
+        int read_eof = 0;
+        if (FD_ISSET(serverfd, &tmp_readfds)) {
+            if (NetRecv(serverfd, &readbuf) == 0)
+                read_eof = 1;
+            while (1) {
+                if (blk_len == 0) {
+                    if (readbuf.len >= sizeof(u16)) {
+                        u16 *bs = (u16 *) readbuf.bs;
+                        blk_len = ntohs(*bs);
+                        if (blk_len == 0) {
+                            read_eof = 1;
+                            break;
+                        }
+                        BufferShift(&readbuf, sizeof(u16));
+                        continue;
+                    }
+                    break;
+                } else {
+                    // Read block body (blk_len bytes)
+                    if (readbuf.len >= blk_len) {
+                        u16 writebuf_org_len = writebuf.len;
+                        server_sent_block(serverfd, readbuf.bs, blk_len, &writebuf);
+                        BufferShift(&readbuf, blk_len);
+                        blk_len = 0;
+
+                        // writebuf contains response, if any
+                        if (writebuf.len > writebuf_org_len)
+                            FD_SET(serverfd, &writefds);
+                        continue;
+                    }
+                    break;
+                }
+            }
+            if (read_eof) {
+                server_end_transmission(serverfd);
+                FD_CLR(serverfd, &readfds);
+                shutdown(serverfd, SHUT_RD);
+                shut_rd = 1;
+
+                // Close serverfd if no remaining reads and writes.
+                if (writebuf.len == 0) {
+                    FD_CLR(serverfd, &writefds);
+                    shutdown(serverfd, SHUT_WR);
+                    break;
+                }
+            }
+        }
+        if (FD_ISSET(serverfd, &tmp_writefds)) {
+            NetSend(serverfd, &writebuf);
+
+            // Close serverfd if no remaining reads and writes.
+            if (writebuf.len == 0 && shut_rd) {
+                FD_CLR(serverfd, &writefds);
+                shutdown(serverfd, SHUT_WR);
+                break;
+            }
+        }
+
+        close(serverfd);
     }
 
-    char *server_domain = argv[1];
-    char *server_port = argv[2];
-    struct addrinfo hints, *servaddr;
-    memset(&hints, 0, sizeof(hints));
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_flags = 0;
-    z = getaddrinfo(server_domain, server_port, &hints, &servaddr);
-    if (z != 0) {
-        fprintf(stderr, "getaddrinfo(): %s\n", strerror(errno));
-        exit(1);
-    }
-
-    // Server socket
-    sock = socket(servaddr->ai_family, servaddr->ai_socktype, servaddr->ai_protocol);
-    if (sock == -1) {
-        fprintf(stderr, "socket(): %s\n", strerror(errno));
-        exit(1);
-    }
-
-    z = connect(sock, servaddr->ai_addr, servaddr->ai_addrlen);
-    if (z != 0) {
-        fprintf(stderr, "connect(): %s\n", strerror(errno));
-        exit(1);
-    }
-
-    freeaddrinfo(servaddr);
-    servaddr = NULL;
-
-    printf("Connected to %s:%s\n", server_domain, server_port);
-
-    sendTextMessage(sock, "Now is the time for all good men to come to the aid of the party.");
-    sendTextMessage(sock, "abc");
-    sendTextMessage(sock, "def");
-    sendTextMessage(sock, "Z");
-    sendZeroMessage(sock);
-    sendTextMessage(sock, "abc");
-
-//    printf("Receiving response...\n");
-//    z = recvbytes(sock, respmsg, sizeof(respmsg));
-//    if (z == -1) {
-//        fprintf(stderr, "recv(): %s\n", strerror(errno));
-//        exit(1);
-//    }
-//    respmsg[z] = '\0';
-//    printf("%s", respmsg);
-
-    sleep(2);
-    z = close(sock);
     return 0;
 }
 

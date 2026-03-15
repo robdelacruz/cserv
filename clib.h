@@ -27,7 +27,6 @@ typedef struct {
 
 typedef struct {
     char *bs;
-    u32 cur;
     u32 len;
     u32 cap;
 } Buffer;
@@ -54,6 +53,6 @@ void BufferFree(Buffer *buf);
 void BufferClear(Buffer *buf);
 void BufferAppend(Buffer *buf, char *bs, u32 bslen);
 void BufferAppendChar(Buffer *buf, unsigned char c);
-void BufferResetFromCur(Buffer *buf);
+void BufferShift(Buffer *buf, int n);
 
 #endif

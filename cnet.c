@@ -136,16 +136,14 @@ int NetRecv(int fd, Buffer *buf) {
 // Nonblocking socket write from buf.
 // Returns  0 for all bytes sent
 //         -1 if error occured (check errno)
-//          1 for partial bytes sent, buf->cur points to unsent data
+//          1 for partial bytes sent
+// Successfully sent data is removed from buf, unsent data remains in buf.
 int NetSend(int fd, Buffer *buf) {
     int z;
     while (1) {
-        if (buf->len - buf->cur <= 0)
+        if (buf->len <= 0)
             return 0;
-        z = send(fd,
-                 buf->bs + buf->cur,
-                 buf->len - buf->cur,
-                 MSG_DONTWAIT | MSG_NOSIGNAL);
+        z = send(fd, buf->bs, buf->len, MSG_DONTWAIT | MSG_NOSIGNAL);
         printf("write_sock() z: %d\n", z);
         if (z == -1 && errno == EINTR)
             continue;
@@ -156,7 +154,7 @@ int NetSend(int fd, Buffer *buf) {
             return -1; 
         }
         assert(z > 0);
-        buf->cur += z;
+        BufferShift(buf, z);
     }
     return 1;
 }

@@ -166,7 +166,6 @@ Buffer BufferNew(u32 cap) {
         cap = 1024;
     buf.bs = (char *) malloc(cap);
     memset(buf.bs, 0, cap);
-    buf.cur = 0;
     buf.len = 0;
     buf.cap = cap;
     return buf;
@@ -174,13 +173,11 @@ Buffer BufferNew(u32 cap) {
 void BufferFree(Buffer *buf) {
     free(buf->bs);
     buf->bs = 0;
-    buf->cur = 0;
     buf->len = 0;
     buf->cap = 0;
 }
 void BufferClear(Buffer *buf) {
     memset(buf->bs, 0, buf->len);
-    buf->cur = 0;
     buf->len = 0;
 }
 void BufferAppend(Buffer *buf, char *bs, u32 bslen) {
@@ -204,19 +201,17 @@ void BufferAppend(Buffer *buf, char *bs, u32 bslen) {
 void BufferAppendChar(Buffer *buf, unsigned char c) {
     BufferAppend(buf, &c, 1);
 }
-// Reset buffer to start from buf->cur.
-void BufferResetFromCur(Buffer *buf) {
+// Remove first n bytes of buffer
+void BufferShift(Buffer *buf, int n) {
     assert(buf->len <= buf->cap);
-    assert(buf->cur <= buf->len);
-    if (buf->cur > buf->len)
-        return;
+    if (n > buf->len)
+        n = buf->len;
 
     memcpy(buf->bs,
-           buf->bs + buf->cur,
-           buf->len - buf->cur);
-    buf->len = buf->len - buf->cur;
+           buf->bs + n,
+           buf->len - n);
+    buf->len -= n;
     memset(buf->bs + buf->len, 0, buf->cap - buf->len);
-    buf->cur = 0;
 }
 
 

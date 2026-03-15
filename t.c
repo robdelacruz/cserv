@@ -36,12 +36,35 @@ void client_connected(Client *client) {
 }
 void client_received_block(Client *client, char *blk, u16 blk_len) {
     printf("Client %d received block '%.*s'\n", client->fd, blk_len, blk);
-
-    BufferAppend(&client->writebuf, "abc", 3);
 }
 void client_end_transmission(Client *client) {
     fprintf(stderr, "Client %d end transmission\n", client->fd);
 }
+
+// Message components:
+// typeid: 1-byte identifier representing what type of message it is
+// string: u16 length followed by length bytes representing a string
+// Each message starts with a typeid followed by the message body.
+//
+// Message types:
+//
+// Client intro
+// typeid: 1
+// string: alias
+//
+// Command
+// typeid: 2
+// string: command
+// Available command strings: "list users"
+//
+// Send chat
+// typeid: 3
+// string: alias from
+// string: alias to
+// string: chat text
+//
+//
+//
 
 int main(int argc, char *argv[]) {
     int z;
@@ -136,39 +159,33 @@ int main(int argc, char *argv[]) {
                     while (1) {
                         if (client->blk_len == 0) {
                             // Read block length
-                            if (readbuf->len - readbuf->cur >= sizeof(u16)) {
-                                u16 *bs = (u16 *) &readbuf->bs[readbuf->cur];
-                                u16 blk_len = ntohs(*bs);
-                                if (blk_len == 0) {
+                            if (readbuf->len >= sizeof(u16)) {
+                                u16 *bs = (u16 *) readbuf->bs;
+                                client->blk_len = ntohs(*bs);
+                                if (client->blk_len == 0) {
                                     read_eof = 1;
                                     break;
                                 }
-
-                                client->blk_len = blk_len;
-                                readbuf->cur += sizeof(u16);
+                                BufferShift(readbuf, sizeof(u16));
                                 continue;
-                            } else {
-                                break;
                             }
+                            break;
                         } else {
                             // Read block body (blk_len bytes)
-                            if (readbuf->len - readbuf->cur >= client->blk_len) {
+                            if (readbuf->len >= client->blk_len) {
                                 u16 writebuf_org_len = writebuf->len;
-                                client_received_block(client, readbuf->bs + readbuf->cur, client->blk_len);
-                                readbuf->cur += client->blk_len;
+                                client_received_block(client, readbuf->bs, client->blk_len);
+                                BufferShift(readbuf, client->blk_len);
                                 client->blk_len = 0;
 
                                 // client->writebuf contains response, if any
                                 if (writebuf->len > writebuf_org_len)
                                     FD_SET(clientfd, &writefds);
-
                                 continue;
-                            } else {
-                                break;
                             }
+                            break;
                         }
                     }
-
                     if (read_eof) {
                         client_end_transmission(client);
                         FD_CLR(clientfd, &readfds);
@@ -176,7 +193,6 @@ int main(int argc, char *argv[]) {
                         client->shut_rd = 1;
 
                         // Remove client if no remaining reads and writes.
-                        BufferResetFromCur(writebuf);
                         if (writebuf->len == 0) {
                             ClientArrayRemove(&_clients, clientfd);
                             FD_CLR(clientfd, &writefds);
@@ -184,7 +200,6 @@ int main(int argc, char *argv[]) {
                             close(clientfd);
                         }
                     }
-
                 }
             }
             if (FD_ISSET(i, &tmp_writefds)) {
@@ -199,7 +214,6 @@ int main(int argc, char *argv[]) {
 
                 Buffer *writebuf = &client->writebuf;
                 NetSend(clientfd, writebuf);
-                BufferResetFromCur(writebuf);
 
                 // Remove client if no remaining reads and writes.
                 if (writebuf->len == 0 && client->shut_rd) {

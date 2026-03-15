@@ -12,6 +12,9 @@ t: $(SOURCE)
 t2: t2.c clib.c cnet.c
 	gcc -o $@ $^
 
+tclient: tclient.c clib.c cnet.c
+	gcc -o $@ $^
+
 clean:
-	rm -rf t
+	rm -rf t t2 tclient
 
