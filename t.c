@@ -35,7 +35,12 @@ void client_connected(Client *client) {
     fprintf(stderr, "Connected to client %d\n", client->fd);
 }
 void client_received_block(Client *client, char *blk, u16 blk_len) {
-    printf("Client %d received block '%.*s'\n", client->fd, blk_len, blk);
+    u8 typeid;
+    String name = StringNew("");
+    NetUnpack(blk, blk_len, "%b%s", &typeid, &name);
+    printf("Client %d received:\n", client->fd);
+    printf("typeid: %d name: '%.*s'\n", typeid, name.len, name.bs);
+    StringFree(&name);
 }
 void client_end_transmission(Client *client) {
     fprintf(stderr, "Client %d end transmission\n", client->fd);

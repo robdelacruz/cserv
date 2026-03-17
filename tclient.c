@@ -51,6 +51,18 @@ int main(int argc, char *argv[]) {
     int blk_len = 0;
     int shut_rd = 0;
 
+    // Queue up Client Intro message
+    u16 msglen = 0;
+    u8 typeid = 1;
+    char *alias = "rob";
+    u16 *pmsglen = (u16 *) (writebuf.bs + writebuf.len);
+    int oldlen = writebuf.len;
+    NetPack(&writebuf, "%w%b%s", msglen, typeid, alias);
+    *pmsglen = htons((u16) (writebuf.len - oldlen - sizeof(u16)));
+    z = NetSend(serverfd, &writebuf);
+    if (z == 1)
+        FD_SET(serverfd, &writefds);
+
     fd_set tmp_readfds, tmp_writefds;
     while (1) {
         tmp_readfds = readfds;
@@ -113,7 +125,10 @@ int main(int argc, char *argv[]) {
             }
         }
         if (FD_ISSET(serverfd, &tmp_writefds)) {
-            NetSend(serverfd, &writebuf);
+            printf("FD_ISSET()...\n");
+            z = NetSend(serverfd, &writebuf);
+            if (z == 0)
+                FD_CLR(serverfd, &writefds);
 
             // Close serverfd if no remaining reads and writes.
             if (writebuf.len == 0 && shut_rd) {
@@ -122,9 +137,8 @@ int main(int argc, char *argv[]) {
                 break;
             }
         }
-
-        close(serverfd);
     }
+    close(serverfd);
 
     return 0;
 }
