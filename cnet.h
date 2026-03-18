@@ -32,7 +32,8 @@ int OpenConnectSocket(char *host, char *port, int backlog, struct sockaddr *sa);
 void GetTextIPAddress(struct sockaddr *sa, String *dest);
 int NetRecv(int fd, Buffer *buf);
 int NetSend(int fd, Buffer *buf);
-void NetPack(Buffer *buf, char *fmt, ...);
+int NetPack(Buffer *buf, char *fmt, ...);
+int NetPackBlock(Buffer *buf, char *fmt, ...);
 void NetUnpack(char *blk, int blklen, char *fmt, ...);
 
 Client ClientNew(int fd);

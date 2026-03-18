@@ -159,12 +159,10 @@ int NetSend(int fd, Buffer *buf) {
     return 1;
 }
 
-// NetPack(buf, "BUF %b %w %l %s", n1, n2, n3, "abc");
-void NetPack(Buffer *buf, char *fmt, ...) {
+int vNetPack(Buffer *buf, char *fmt, va_list args) {
     int state = 0;  // 0: none, 1: prev '%'
-    va_list args;
+    int nbytes_packed = 0;
 
-    va_start(args, fmt);
     for (char *pfmt = fmt; *pfmt != 0; pfmt++) {
         if (state == 0) {
             if (*pfmt == '%') {
@@ -172,28 +170,34 @@ void NetPack(Buffer *buf, char *fmt, ...) {
                 continue;
             }
             BufferAppendChar(buf, *pfmt);
+            nbytes_packed++;
             continue;
         }
         if (state == 1) {
             if (*pfmt == 'b') {
                 u8 ch = va_arg(args, int);
                 BufferAppendChar(buf, ch);
+                nbytes_packed++;
             } else if (*pfmt == 'w') {
                 u16 w = va_arg(args, int);
                 BufferAppendChar(buf, w >> 8);
                 BufferAppendChar(buf, w);
+                nbytes_packed += 2;
             } else if (*pfmt == 'l') {
                 u32 l = va_arg(args, u32);
                 BufferAppendChar(buf, l >> 24);
                 BufferAppendChar(buf, l >> 16);
                 BufferAppendChar(buf, l >> 8);
                 BufferAppendChar(buf, l);
+                nbytes_packed += 4;
             } else if (*pfmt == 's') {
                 char *s = va_arg(args, char *);
                 u16 slen = strlen(s);
                 BufferAppendChar(buf, slen >> 8);
                 BufferAppendChar(buf, slen);
+                nbytes_packed += 2;
                 BufferAppend(buf, s, slen);
+                nbytes_packed += slen;
             } else {
                 // Ignore any unsupported %? spec
             }
@@ -201,7 +205,41 @@ void NetPack(Buffer *buf, char *fmt, ...) {
             continue;
         }
     }
+
+    return nbytes_packed;
+}
+
+
+// NetPack(buf, "%b%w%l%s", n1, n2, n3, "abc");
+// Returns number of bytes packed.
+int NetPack(Buffer *buf, char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    int nbytes_packed = vNetPack(buf, fmt, args);
     va_end(args);
+
+    return nbytes_packed;
+}
+
+// Like NetPack() but prefixes the block length (u16) at the start of the block.
+int NetPackBlock(Buffer *buf, char *fmt, ...) {
+    // Add 0 block length first, this will be overwritten later.
+    u16 blklen = 0;
+    BufferAppend(buf, (char *) &blklen, sizeof(blklen));
+
+    va_list args;
+    va_start(args, fmt);
+
+    // Add the body
+    blklen = vNetPack(buf, fmt, args);
+
+    // Fill in the block length value at the start of the block.
+    u16 *pblklen = (u16 *) (buf->bs + buf->len - blklen - sizeof(blklen));
+    *pblklen = htons(blklen);
+
+    va_end(args);
+
+    return blklen + sizeof(blklen);
 }
 
 // NetUnpack(buf, "BUF %b %w %l %s", &n1, &n2, &n3, s1);

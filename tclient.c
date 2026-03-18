@@ -51,14 +51,10 @@ int main(int argc, char *argv[]) {
     int blk_len = 0;
     int shut_rd = 0;
 
-    // Queue up Client Intro message
-    u16 msglen = 0;
+    // Start sending Client Intro message
     u8 typeid = 1;
     char *alias = "rob";
-    u16 *pmsglen = (u16 *) (writebuf.bs + writebuf.len);
-    int oldlen = writebuf.len;
-    NetPack(&writebuf, "%w%b%s", msglen, typeid, alias);
-    *pmsglen = htons((u16) (writebuf.len - oldlen - sizeof(u16)));
+    NetPackBlock(&writebuf, "%b%s", typeid, alias);
     z = NetSend(serverfd, &writebuf);
     if (z == 1)
         FD_SET(serverfd, &writefds);
