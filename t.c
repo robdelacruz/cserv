@@ -31,45 +31,58 @@ void sigint(int sig) {
     exit(0);
 }
 
+// Message structure:
+// [2 bytes] message length
+// [1 byte] typeid describing the format of the message
+// [n bytes] body of the message  
+//
+// A [string] is composed of:
+// [2 bytes] number of bytes in string
+// [n bytes] characters in the string
+//
+// type id 1: Hello message
+// [string] client alias
+//
+// type id 2: Command message
+// [string] command
+// Ex."list users"
+//
+// type id 3: Send chat message
+// [string] alias from
+// [string] alias to
+// [string] chat text
+//
+
+
+// Sequence of messages:
+// 1. Client connects to server
+// 2. Client sends Hello message to server
+// 3. Server sends Hello message back to client
+// 4. Client sends any of the following to server:
+//    - Command message
+//    - Send chat message
+
 void client_connected(Client *client) {
     fprintf(stderr, "Connected to client %d\n", client->fd);
 }
-void client_received_block(Client *client, char *blk, u16 blk_len) {
-    u8 typeid;
-    String name = StringNew("");
-    NetUnpack(blk, blk_len, "%b%s", &typeid, &name);
-    printf("Client %d received:\n", client->fd);
-    printf("typeid: %d name: '%.*s'\n", typeid, name.len, name.bs);
-    StringFree(&name);
+void client_sent_block(Client *client, char *blk, u16 blk_len) {
+    u8 typeid = *((u8 *) blk);
+    printf("Client %d received typeid: %d\n", client->fd, (int) typeid);
+
+    if (typeid == 1) {
+        String name = StringNew("");
+        NetUnpack(blk, blk_len, "%b%s", &typeid, &name);
+        printf("client sent name: '%.*s'\n", name.len, name.bs);
+        StringFree(&name);
+
+        NetPackBlock(&client->writebuf, "%b%s", typeid, "server");
+        NetSend(client->fd, &client->writebuf);
+    }
 }
 void client_end_transmission(Client *client) {
     fprintf(stderr, "Client %d end transmission\n", client->fd);
 }
 
-// Message components:
-// typeid: 1-byte identifier representing what type of message it is
-// string: u16 length followed by length bytes representing a string
-// Each message starts with a typeid followed by the message body.
-//
-// Message types:
-//
-// Client intro
-// typeid: 1
-// string: alias
-//
-// Command
-// typeid: 2
-// string: command
-// Available command strings: "list users"
-//
-// Send chat
-// typeid: 3
-// string: alias from
-// string: alias to
-// string: chat text
-//
-//
-//
 
 int main(int argc, char *argv[]) {
     int z;
@@ -178,13 +191,12 @@ int main(int argc, char *argv[]) {
                         } else {
                             // Read block body (blk_len bytes)
                             if (readbuf->len >= client->blk_len) {
-                                u16 writebuf_org_len = writebuf->len;
-                                client_received_block(client, readbuf->bs, client->blk_len);
+                                client_sent_block(client, readbuf->bs, client->blk_len);
                                 BufferShift(readbuf, client->blk_len);
                                 client->blk_len = 0;
 
-                                // client->writebuf contains response, if any
-                                if (writebuf->len > writebuf_org_len)
+                                // If there are unsent bytes sent from client_received_block()
+                                if (writebuf->len > 0)
                                     FD_SET(clientfd, &writefds);
                                 continue;
                             }

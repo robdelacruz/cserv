@@ -13,13 +13,27 @@
 #include "clib.h"
 #include "cnet.h"
 
-ssize_t sendbytes(int sock, char *buf, size_t count);
-ssize_t recvbytes(int sock, char *buf, size_t count);
-void sendTextMessage(int sock, char *msg);
-void sendZeroMessage(int sock);
+// Client states
+#define OFFLINE 0
+#define CONNECTED 1
+#define WAITING_SERVER_HELLO 2
+#define SERVER_READY 3
+#define WAITING_SERVER_RESPONSE 4
+
+int clientstate = 0;
 
 void server_sent_block(int serverfd, char *blk, u16 blk_len, Buffer *writebuf) {
-    printf("Server %d received block '%.*s'\n", serverfd, blk_len, blk);
+    u8 typeid = *((u8 *) blk);
+    printf("Server %d received typeid: %d\n", serverfd, (int) typeid);
+
+    if (clientstate == WAITING_SERVER_HELLO) {
+        if (typeid == 1) {
+            String name = StringNew("");
+            NetUnpack(blk, blk_len, "%b%s", &typeid, &name);
+            printf("Server '%.*s' responded hello\n", name.len, name.bs);
+            StringFree(&name);
+        }
+    }
 }
 void server_end_transmission(int serverfd) {
     fprintf(stderr, "Server %d end transmission\n", serverfd);
@@ -36,10 +50,12 @@ int main(int argc, char *argv[]) {
     if (serverfd == -1)
         exit(1);
 
+
     String ipaddr = StringNew("");
     GetTextIPAddress(&sa, &ipaddr);
     printf("Connected to %.*s port %s...\n", ipaddr.len, ipaddr.bs, serverport);
     StringFree(&ipaddr);
+
 
     fd_set readfds, writefds;
     FD_ZERO(&readfds);
@@ -51,12 +67,16 @@ int main(int argc, char *argv[]) {
     int blk_len = 0;
     int shut_rd = 0;
 
-    // Start sending Client Intro message
+    clientstate = CONNECTED;
+
+    // Send Hello message to server
     u8 typeid = 1;
     char *alias = "rob";
     NetPackBlock(&writebuf, "%b%s", typeid, alias);
     z = NetSend(serverfd, &writebuf);
-    if (z == 1)
+    if (z == 0)
+        clientstate = WAITING_SERVER_HELLO;
+    else
         FD_SET(serverfd, &writefds);
 
     fd_set tmp_readfds, tmp_writefds;
@@ -97,10 +117,6 @@ int main(int argc, char *argv[]) {
                         server_sent_block(serverfd, readbuf.bs, blk_len, &writebuf);
                         BufferShift(&readbuf, blk_len);
                         blk_len = 0;
-
-                        // writebuf contains response, if any
-                        if (writebuf.len > writebuf_org_len)
-                            FD_SET(serverfd, &writefds);
                         continue;
                     }
                     break;
@@ -123,8 +139,15 @@ int main(int argc, char *argv[]) {
         if (FD_ISSET(serverfd, &tmp_writefds)) {
             printf("FD_ISSET()...\n");
             z = NetSend(serverfd, &writebuf);
-            if (z == 0)
+            if (z == 0) {
                 FD_CLR(serverfd, &writefds);
+                clientstate = WAITING_SERVER_HELLO;
+            } else if (z == 1) {
+                continue;
+            } else {
+                fprintf(stderr, "Failed to send to server.\n");
+                continue;
+            }
 
             // Close serverfd if no remaining reads and writes.
             if (writebuf.len == 0 && shut_rd) {
@@ -137,83 +160,5 @@ int main(int argc, char *argv[]) {
     close(serverfd);
 
     return 0;
-}
-
-void sendTextMessage(int sock, char *msg) {
-    int z;
-    unsigned short msglen = strlen(msg);
-    unsigned short netmsglen = htons(msglen);
-    z = sendbytes(sock, (char *) &netmsglen, sizeof(netmsglen));
-    if (z == -1)
-        fprintf(stderr, "send(): %s\n", strerror(errno));
-    z = sendbytes(sock, msg, strlen(msg));
-    if (z == -1)
-        fprintf(stderr, "send(): %s\n", strerror(errno));
-}
-
-void sendZeroMessage(int sock) {
-    unsigned short msglen = 0;
-    int z = sendbytes(sock, (char *) &msglen, sizeof(msglen));
-    if (z == -1)
-        fprintf(stderr, "send(): %s\n", strerror(errno));
-}
-
-// Send count buf bytes into sock.
-// Returns num bytes sent or -1 for error
-ssize_t sendbytes(int sock, char *buf, size_t count) {
-    int nsent = 0;
-    while (nsent < count) {
-        int z = send(sock, buf+nsent, count-nsent, 0);
-        // socket closed, no more data
-        if (z == 0) {
-            // socket closed
-            break;
-        }
-        // interrupt occured during send, retry send.
-        if (z == -1 && errno == EINTR) {
-            continue;
-        }
-        // no data available at the moment, just return what we have.
-        if (z == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-            break;
-        }
-        // any other error
-        if (z == -1) {
-            return z;
-        }
-        nsent += z;
-    }
-
-    return nsent;
-}
-
-// Receive count bytes into buf.
-// Returns num bytes received or -1 for error.
-ssize_t recvbytes(int sock, char *buf, size_t count) {
-    memset(buf, '*', count); // initialize for debugging purposes.
-
-    int nread = 0;
-    while (nread < count) {
-        int z = recv(sock, buf+nread, count-nread, 0);
-        // socket closed, no more data
-        if (z == 0) {
-            break;
-        }
-        // interrupt occured during read, retry read.
-        if (z == -1 && errno == EINTR) {
-            continue;
-        }
-        // no data available at the moment, just return what we have.
-        if (z == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-            break;
-        }
-        // any other error
-        if (z == -1) {
-            return z;
-        }
-        nread += z;
-    }
-
-    return nread;
 }
 
