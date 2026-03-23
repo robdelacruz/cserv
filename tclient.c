@@ -16,7 +16,7 @@
 // Client states
 #define OFFLINE 0
 #define CONNECTED 1
-#define WAITING_SERVER_HELLO 2
+#define WAITING_SERVER_ACK 2
 #define SERVER_READY 3
 #define WAITING_SERVER_RESPONSE 4
 
@@ -24,14 +24,15 @@ int clientstate = 0;
 
 void server_sent_block(int serverfd, char *blk, u16 blk_len, Buffer *writebuf) {
     u8 typeid = *((u8 *) blk);
+    u16 seq = 0;
     printf("Server %d received typeid: %d\n", serverfd, (int) typeid);
 
-    if (clientstate == WAITING_SERVER_HELLO) {
-        if (typeid == 1) {
-            String name = StringNew("");
-            NetUnpack(blk, blk_len, "%b%s", &typeid, &name);
-            printf("Server '%.*s' responded hello\n", name.len, name.bs);
-            StringFree(&name);
+    if (clientstate == WAITING_SERVER_ACK) {
+        if (typeid == 2) {
+            String ackstr = StringNew("");
+            NetUnpack(blk, blk_len, "%b%w%s", &typeid, &seq, &ackstr);
+            printf("Server sent ack '%.*s'\n", ackstr.len, ackstr.bs);
+            StringFree(&ackstr);
         }
     }
 }
@@ -71,11 +72,12 @@ int main(int argc, char *argv[]) {
 
     // Send Hello message to server
     u8 typeid = 1;
+    u16 seq = 100;
     char *alias = "rob";
-    NetPackBlock(&writebuf, "%b%s", typeid, alias);
+    NetPackBlock(&writebuf, "%b%w%s", typeid, seq, alias);
     z = NetSend(serverfd, &writebuf);
     if (z == 0)
-        clientstate = WAITING_SERVER_HELLO;
+        clientstate = WAITING_SERVER_ACK;
     else
         FD_SET(serverfd, &writefds);
 
@@ -141,7 +143,7 @@ int main(int argc, char *argv[]) {
             z = NetSend(serverfd, &writebuf);
             if (z == 0) {
                 FD_CLR(serverfd, &writefds);
-                clientstate = WAITING_SERVER_HELLO;
+                clientstate = WAITING_SERVER_ACK;
             } else if (z == 1) {
                 continue;
             } else {

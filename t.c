@@ -36,46 +36,68 @@ void sigint(int sig) {
 // [1 byte] typeid describing the format of the message
 // [n bytes] body of the message  
 //
-// A [string] is composed of:
-// [2 bytes] number of bytes in string
-// [n bytes] characters in the string
+// [typeid]:
+//   [1 byte] message id
 //
-// type id 1: Hello message
-// [string] client alias
+// [seq]:
+//   [2 bytes] sequence number
 //
-// type id 2: Command message
-// [string] command
-// Ex."list users"
+// [string]:
+//   [2 bytes] number of bytes in string
+//   [n bytes] characters in the string
 //
-// type id 3: Send chat message
-// [string] alias from
-// [string] alias to
-// [string] chat text
+// Client info message:
+//   [typeid] 1
+//   [seq] sequence number
+//   [string] alias
+//   NetPackBlock: "%b%w%s"
 //
-
+// Ack message:
+//   [typeid] 2
+//   [seq] client sequence number being responded to
+//   [string] 
+//   NetPackBlock: "%b%w%s"
+//
+// Command message:
+//   [typeid] 3
+//   [seq] sequence number
+//   [string] command
+//   Ex command: "list users"
+//   NetPackBlock: "%b%w%s"
+//
+// Chat message:
+//   [typeid] 4
+//   [seq] sequence number
+//   [string] alias from
+//   [string] alias to
+//   [string] chat text
+//   NetPackBlock: "%b%w%s%s%s"
+//
 
 // Sequence of messages:
 // 1. Client connects to server
-// 2. Client sends Hello message to server
-// 3. Server sends Hello message back to client
-// 4. Client sends any of the following to server:
-//    - Command message
-//    - Send chat message
+// 2. Client sends Client info message to server
+// 3. Server sends Ack message back to client
+// 4. Client sends message to server
+//
 
 void client_connected(Client *client) {
     fprintf(stderr, "Connected to client %d\n", client->fd);
 }
 void client_sent_block(Client *client, char *blk, u16 blk_len) {
     u8 typeid = *((u8 *) blk);
-    printf("Client %d received typeid: %d\n", client->fd, (int) typeid);
+    u16 seq=0;
 
     if (typeid == 1) {
-        String name = StringNew("");
-        NetUnpack(blk, blk_len, "%b%s", &typeid, &name);
-        printf("client sent name: '%.*s'\n", name.len, name.bs);
-        StringFree(&name);
+        String alias = StringNew("");
+        NetUnpack(blk, blk_len, "%b%w%s", &typeid, &seq, &alias);
+        printf("Client %d info message received.\n[%d] '%.*s'\n", client->fd, seq, alias.len, alias.bs);
+        StringFree(&alias);
 
-        NetPackBlock(&client->writebuf, "%b%s", typeid, "server");
+        // Send ack
+        typeid = 2;
+        char *ackstr = "ack2";
+        NetPackBlock(&client->writebuf, "%b%w%s", typeid, seq, ackstr);
         NetSend(client->fd, &client->writebuf);
     }
 }
