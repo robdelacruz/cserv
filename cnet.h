@@ -11,21 +11,21 @@
 
 #include "clib.h"
 
-typedef struct _Client {
+typedef struct {
     int fd;
     Buffer readbuf;
     Buffer writebuf;
     u16 blk_len;
     int shut_rd;
     int shut_wr;
-} Client;
+    String alias;
+} NetNode;
 
 typedef struct {
-    Client *items;
+    NetNode *items;
     u16 len;
     u16 cap;
-    i8 isfreeitems;
-} ClientArray;
+} NetNodeArray;
 
 int OpenListenSocket(char *host, char *port, int backlog, struct sockaddr *sa);
 int OpenConnectSocket(char *host, char *port, int backlog, struct sockaddr *sa);
@@ -36,13 +36,14 @@ int NetPack(Buffer *buf, char *fmt, ...);
 int NetPackBlock(Buffer *buf, char *fmt, ...);
 void NetUnpack(char *blk, int blklen, char *fmt, ...);
 
-Client ClientNew(int fd);
-void ClientFree(Client *client);
-ClientArray ClientArrayNew(u16 cap);
-void ClientArrayFree(ClientArray *ca);
-void ClientArrayClear(ClientArray *ca);
-void ClientArrayAppend(ClientArray *ca, Client client);
-void ClientArrayRemove(ClientArray *ca, int fd);
-Client *ClientArrayFind(ClientArray *ca, int fd);
+NetNode NetNodeNew(int fd);
+void NetNodeFree(NetNode *n);
+NetNodeArray NetNodeArrayNew(u16 cap);
+void NetNodeArrayFree(NetNodeArray *na);
+void NetNodeArrayClear(NetNodeArray *na);
+void NetNodeArrayAppend(NetNodeArray *na, NetNode n);
+void NetNodeArrayRemove(NetNodeArray *na, int fd);
+NetNode *NetNodeArrayFind(NetNodeArray na, int fd);
+NetNode *NetNodeArrayFindAlias(NetNodeArray na, char *alias);
 
 #endif

@@ -42,11 +42,12 @@ void StringAppend(String *str, char *s);
 void StringAssign(String *str, char *s);
 void StringAssignFromBytes(String *str, char *bs, int bslen);
 int StringSearch(String str, int startpos, char *searchstr);
-StringList StringSplit(String str, char *sep);
+int StringEquals(String str, char *s);
 
 StringList StringListNew(u16 cap);
 void StringListFree(StringList *sl);
 void StringListAppend(StringList *sl, String str);
+StringList StringSplit(String str, char *sep);
 
 Buffer BufferNew(u32 cap);
 void BufferFree(Buffer *buf);

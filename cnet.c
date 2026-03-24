@@ -307,79 +307,85 @@ void NetUnpack(char *blk, int blklen, char *fmt, ...) {
     va_end(args);
 }
 
-Client ClientNew(int fd) {
-    Client client;
-    client.fd = fd;
-    client.readbuf = BufferNew(4096);
-    client.writebuf = BufferNew(4096);
-    client.blk_len = 0;
-    client.shut_rd = 0;
-    client.shut_wr = 0;
-    return client;
+NetNode NetNodeNew(int fd) {
+    NetNode n;
+    n.fd = fd;
+    n.readbuf = BufferNew(4096);
+    n.writebuf = BufferNew(4096);
+    n.blk_len = 0;
+    n.shut_rd = 0;
+    n.shut_wr = 0;
+    n.alias = StringNew("");
+    return n;
 }
-void ClientFree(Client *client) {
-    client->fd = 0;
-    BufferFree(&client->readbuf);
-    BufferFree(&client->writebuf);
+void NetNodeFree(NetNode *n) {
+    n->fd = 0;
+    BufferFree(&n->readbuf);
+    BufferFree(&n->writebuf);
+    StringFree(&n->alias);
 }
 
-ClientArray ClientArrayNew(u16 cap) {
-    ClientArray ca;
+NetNodeArray NetNodeArrayNew(u16 cap) {
+    NetNodeArray na;
     if (cap == 0)
         cap = 32;
-    ca.items = (Client *) malloc(sizeof(Client)*cap);
-    memset(ca.items, 0, sizeof(Client)*cap);
-    ca.len = 0;
-    ca.cap = cap;
-    ca.isfreeitems = 1;
-    return ca;
+    na.items = (NetNode *) malloc(sizeof(NetNode)*cap);
+    memset(na.items, 0, sizeof(NetNode)*cap);
+    na.len = 0;
+    na.cap = cap;
+    return na;
 }
-void ClientArrayFree(ClientArray *ca) {
-    if (ca->isfreeitems) {
-        for (int i=0; i < ca->len; i++)
-            ClientFree(&ca->items[i]);
-    }
-    free(ca->items);
-    ca->items = 0;
-    ca->len = 0;
+void NetNodeArrayFree(NetNodeArray *na) {
+    for (int i=0; i < na->len; i++)
+        NetNodeFree(&na->items[i]);
+    free(na->items);
+    na->items = 0;
+    na->len = 0;
 }
-void ClientArrayClear(ClientArray *ca) {
-    memset(ca->items, 0, sizeof(sizeof(Client)*ca->len));
-    ca->len = 0;
+void NetNodeArrayClear(NetNodeArray *na) {
+    memset(na->items, 0, sizeof(sizeof(NetNode)*na->len));
+    na->len = 0;
 }
-void ClientArrayAppend(ClientArray *ca, Client client) {
-    assert(ca->len <= ca->cap);
+void NetNodeArrayAppend(NetNodeArray *na, NetNode n) {
+    assert(na->len <= na->cap);
 
     // Double the capacity if more space needed.
-    if (ca->len == ca->cap) {
-        ca->items = (Client *) realloc(ca->items, sizeof(Client)*ca->cap * 2);
-        memset(ca->items + sizeof(Client)*ca->cap, 0, sizeof(Client)*ca->cap);
-        ca->cap *= 2;
+    if (na->len == na->cap) {
+        na->items = (NetNode *) realloc(na->items, sizeof(NetNode)*na->cap * 2);
+        memset(na->items + sizeof(NetNode)*na->cap, 0, sizeof(NetNode)*na->cap);
+        na->cap *= 2;
     }
-    assert(ca->len < ca->cap);
+    assert(na->len < na->cap);
 
-    ca->items[ca->len] = client;
-    ca->len++;
+    na->items[na->len] = n;
+    na->len++;
 }
-void ClientArrayRemove(ClientArray *ca, int fd) {
+void NetNodeArrayRemove(NetNodeArray *na, int fd) {
     int i;
-    for (i=0; i < ca->len; i++) {
-        if (ca->items[i].fd == fd)
+    for (i=0; i < na->len; i++) {
+        if (na->items[i].fd == fd)
             break;
     }
-    if (i == ca->len)
+    if (i == na->len)
         return;
     // Move last item to the spot where the deleted item is.
-    ca->items[i] = ca->items[ca->len-1];
+    na->items[i] = na->items[na->len-1];
 
-    memset(&ca->items[ca->len-1], 0, sizeof(Client));
-    ca->len--;
+    memset(&na->items[na->len-1], 0, sizeof(NetNode));
+    na->len--;
 }
-Client *ClientArrayFind(ClientArray *ca, int fd) {
-    for (int i=0; i < ca->len; i++) {
-        if (ca->items[i].fd == fd)
-            return &ca->items[i];
+NetNode *NetNodeArrayFind(NetNodeArray na, int fd) {
+    for (int i=0; i < na.len; i++) {
+        if (na.items[i].fd == fd)
+            return &na.items[i];
     }
     return NULL;
 }
 
+NetNode *NetNodeArrayFindAlias(NetNodeArray na, char *alias) {
+    for (int i=0; i < na.len; i++) {
+        if (StringEquals(na.items[i].alias, alias))
+            return &na.items[i];
+    }
+    return NULL;
+}

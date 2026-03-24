@@ -17,7 +17,7 @@
 #include "clib.h"
 #include "cnet.h"
 
-ClientArray _clients;
+NetNodeArray _clients;
 
 void print_clients() {
     printf("Clients: ");
@@ -81,10 +81,10 @@ void sigint(int sig) {
 // 4. Client sends message to server
 //
 
-void client_connected(Client *client) {
+void client_connected(NetNode *client) {
     fprintf(stderr, "Connected to client %d\n", client->fd);
 }
-void client_sent_block(Client *client, char *blk, u16 blk_len) {
+void client_sent_block(NetNode *client, char *blk, u16 blk_len) {
     u8 typeid = *((u8 *) blk);
     u16 seq=0;
 
@@ -92,6 +92,7 @@ void client_sent_block(Client *client, char *blk, u16 blk_len) {
         String alias = StringNew("");
         NetUnpack(blk, blk_len, "%b%w%s", &typeid, &seq, &alias);
         printf("Client %d info message received.\n[%d] '%.*s'\n", client->fd, seq, alias.len, alias.bs);
+        StringAssign(&client->alias, alias.bs);
         StringFree(&alias);
 
         // Send ack
@@ -99,9 +100,27 @@ void client_sent_block(Client *client, char *blk, u16 blk_len) {
         char *ackstr = "ack2";
         NetPackBlock(&client->writebuf, "%b%w%s", typeid, seq, ackstr);
         NetSend(client->fd, &client->writebuf);
+    } else if (typeid == 4) {
+        String from_alias = StringNew("");
+        String to_alias = StringNew("");
+        String text = StringNew("");
+        NetUnpack(blk, blk_len, "%b%w%s%s%s", &typeid, &seq, &from_alias, &to_alias, &text);
+
+        // Redirect chat message to to_alias client
+        NetNode *to_client = NetNodeArrayFindAlias(_clients, to_alias.bs);
+        if (to_client) {
+            NetPackBlock(&to_client->writebuf, "%b%w%s%s%s", typeid, seq, from_alias.bs, to_alias.bs, text.bs);
+            NetSend(to_client->fd, &to_client->writebuf);
+            if (to_client->writebuf.len > 0)
+                FD_SET(to_client->fd, &writefds);
+        } else {
+            fprintf(stderr, "Can't find to_alias '%.*s' in clients\n", to_alias.len, to_alias.bs);
+        }
+        StringFree(&from_alias);
+        StringFree(&to_alias);
     }
 }
-void client_end_transmission(Client *client) {
+void client_end_transmission(NetNode *client) {
     fprintf(stderr, "Client %d end transmission\n", client->fd);
 }
 
@@ -136,7 +155,7 @@ int main(int argc, char *argv[]) {
     FD_SET(s0, &readfds);
     maxfd = s0;
 
-    _clients = ClientArrayNew(255);
+    _clients = NetNodeArrayNew(255);
 
     fd_set tmp_readfds, tmp_writefds;
     while (1) {
@@ -168,14 +187,14 @@ int main(int argc, char *argv[]) {
                     if (clientfd > maxfd)
                         maxfd = clientfd;
 
-                    Client client = ClientNew(clientfd);
-                    ClientArrayAppend(&_clients, client);
+                    NetNode client = NetNodeNew(clientfd);
+                    NetNodeArrayAppend(&_clients, client);
                     client_connected(&client);
                 } else {
                     int clientfd = i;
                     fprintf(stderr, "Received data from client %d\n", clientfd);
 
-                    Client *client = ClientArrayFind(&_clients, clientfd);
+                    NetNode *client = NetNodeArrayFind(_clients, clientfd);
                     if (client == NULL) {
                         fprintf(stderr, "Can't find client buffer %d\n", clientfd);
                         continue;
@@ -233,7 +252,7 @@ int main(int argc, char *argv[]) {
 
                         // Remove client if no remaining reads and writes.
                         if (writebuf->len == 0) {
-                            ClientArrayRemove(&_clients, clientfd);
+                            NetNodeArrayRemove(&_clients, clientfd);
                             FD_CLR(clientfd, &writefds);
                             shutdown(clientfd, SHUT_WR);
                             close(clientfd);
@@ -245,7 +264,7 @@ int main(int argc, char *argv[]) {
                 int clientfd = i;
 //                fprintf(stderr, "Sending data to client %d\n", clientfd);
 
-                Client *client = ClientArrayFind(&_clients, clientfd);
+                NetNode *client = NetNodeArrayFind(_clients, clientfd);
                 if (client == NULL) {
                     fprintf(stderr, "Can't find client buffer %d\n", clientfd);
                     continue;
@@ -256,7 +275,7 @@ int main(int argc, char *argv[]) {
 
                 // Remove client if no remaining reads and writes.
                 if (writebuf->len == 0 && client->shut_rd) {
-                    ClientArrayRemove(&_clients, clientfd);
+                    NetNodeArrayRemove(&_clients, clientfd);
                     FD_CLR(clientfd, &writefds);
                     shutdown(clientfd, SHUT_WR);
                     close(clientfd);

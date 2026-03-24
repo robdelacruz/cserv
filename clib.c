@@ -86,6 +86,16 @@ int StringSearch(String str, int startpos, char *searchstr) {
     }
     return -1;
 }
+int StringEquals(String str, char *s) {
+    int slen = strlen(s);
+    if (str.len != slen)
+        return 0;
+    for (int i=0; i < str.len; i++) {
+        if (str.bs[i] != s[i])
+            return 0;
+    }
+    return 1;
+}
 
 StringList StringListNew(u16 cap) {
     StringList sl;
