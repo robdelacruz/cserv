@@ -27,6 +27,15 @@ typedef struct {
     u16 cap;
 } NetNodeArray;
 
+typedef struct {
+    fd_set readfds;
+    fd_set writefds;
+    int maxfd;
+    NetNodeArray nodes;
+} NetSelectCtx;
+
+void NetInit(NetSelectCtx *ctx, int serverfd);
+
 int OpenListenSocket(char *host, char *port, int backlog, struct sockaddr *sa);
 int OpenConnectSocket(char *host, char *port, int backlog, struct sockaddr *sa);
 void GetTextIPAddress(struct sockaddr *sa, String *dest);

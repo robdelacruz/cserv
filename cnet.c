@@ -9,6 +9,14 @@
 #include "clib.h"
 #include "cnet.h"
 
+void NetInit(NetSelectCtx *ctx, int serverfd) {
+    FD_ZERO(&ctx->readfds);
+    FD_ZERO(&ctx->writefds);
+    FD_SET(serverfd, &ctx->readfds);
+    ctx->maxfd = serverfd;
+    ctx->nodes = NetNodeArrayNew(255);
+}
+
 int OpenListenSocket(char *host, char *port, int backlog, struct sockaddr *sa) {
     int z;
     struct addrinfo hints, *ai;
