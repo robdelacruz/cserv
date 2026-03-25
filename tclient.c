@@ -69,22 +69,18 @@ int main(int argc, char *argv[]) {
     printf("Connected to %.*s port %s...\n", ipaddr.len, ipaddr.bs, serverport);
     StringFree(&ipaddr);
 
+    NetNode server = NetNodeNew(serverfd);
     NetSelectCtx ctx;
     NetInit(&ctx, serverfd);
-    Buffer readbuf = BufferNew(4096);
-    Buffer writebuf = BufferNew(4096);
-    u16 msglen = 0;
-    int shut_rd = 0;
 
     clientstate = CONNECTED;
-    u16 clientseq = 0;
 
     // Send Client Info message to server
     u8 typeid = 1;
     char *alias = "rob";
-    clientseq++;
-    NetPackMsg(&writebuf, "%b%w%s", typeid, clientseq, alias);
-    z = NetSend(serverfd, &writebuf);
+    server.seq++;
+    NetPackMsg(&server.writebuf, "%b%w%s", typeid, server.seq, alias);
+    z = NetSend(serverfd, &server.writebuf);
     if (z == 0)
         clientstate = WAITING_SERVER_ACK;
     else
@@ -106,28 +102,27 @@ int main(int argc, char *argv[]) {
 
         int read_eof = 0;
         if (FD_ISSET(serverfd, &tmp_readfds)) {
-            if (NetRecv(serverfd, &readbuf) == 0)
+            if (NetRecv(serverfd, &server.readbuf) == 0)
                 read_eof = 1;
             while (1) {
-                if (msglen == 0) {
-                    if (readbuf.len >= sizeof(u16)) {
-                        u16 *bs = (u16 *) readbuf.bs;
-                        msglen = ntohs(*bs);
-                        if (msglen == 0) {
+                if (server.msglen == 0) {
+                    if (server.readbuf.len >= sizeof(u16)) {
+                        u16 *bs = (u16 *) server.readbuf.bs;
+                        server.msglen = ntohs(*bs);
+                        if (server.msglen == 0) {
                             read_eof = 1;
                             break;
                         }
-                        BufferShift(&readbuf, sizeof(u16));
+                        BufferShift(&server.readbuf, sizeof(u16));
                         continue;
                     }
                     break;
                 } else {
                     // Read msg body (msglen bytes)
-                    if (readbuf.len >= msglen) {
-                        u16 writebuf_org_len = writebuf.len;
-                        server_sent_msg(serverfd, readbuf.bs, msglen, &writebuf);
-                        BufferShift(&readbuf, msglen);
-                        msglen = 0;
+                    if (server.readbuf.len >= server.msglen) {
+                        server_sent_msg(serverfd, server.readbuf.bs, server.msglen, &server.writebuf);
+                        BufferShift(&server.readbuf, server.msglen);
+                        server.msglen = 0;
                         continue;
                     }
                     break;
@@ -137,10 +132,10 @@ int main(int argc, char *argv[]) {
                 server_end_transmission(serverfd);
                 FD_CLR(serverfd, &ctx.readfds);
                 shutdown(serverfd, SHUT_RD);
-                shut_rd = 1;
+                server.shut_rd = 1;
 
                 // Close serverfd if no remaining reads and writes.
-                if (writebuf.len == 0) {
+                if (server.writebuf.len == 0) {
                     FD_CLR(serverfd, &ctx.writefds);
                     shutdown(serverfd, SHUT_WR);
                     break;
@@ -149,7 +144,7 @@ int main(int argc, char *argv[]) {
         }
         if (FD_ISSET(serverfd, &tmp_writefds)) {
             printf("FD_ISSET()...\n");
-            z = NetSend(serverfd, &writebuf);
+            z = NetSend(serverfd, &server.writebuf);
             if (z == 0) {
                 FD_CLR(serverfd, &ctx.writefds);
                 clientstate = WAITING_SERVER_ACK;
@@ -161,7 +156,7 @@ int main(int argc, char *argv[]) {
             }
 
             // Close serverfd if no remaining reads and writes.
-            if (writebuf.len == 0 && shut_rd) {
+            if (server.writebuf.len == 0 && server.shut_rd) {
                 FD_CLR(serverfd, &ctx.writefds);
                 shutdown(serverfd, SHUT_WR);
                 break;
