@@ -13,9 +13,10 @@
 
 typedef struct {
     int fd;
+    u16 seq;
     Buffer readbuf;
     Buffer writebuf;
-    u16 blk_len;
+    u16 msglen;
     int shut_rd;
     int shut_wr;
     String alias;
@@ -42,8 +43,8 @@ void GetTextIPAddress(struct sockaddr *sa, String *dest);
 int NetRecv(int fd, Buffer *buf);
 int NetSend(int fd, Buffer *buf);
 int NetPack(Buffer *buf, char *fmt, ...);
-int NetPackBlock(Buffer *buf, char *fmt, ...);
-void NetUnpack(char *blk, int blklen, char *fmt, ...);
+int NetPackMsg(Buffer *buf, char *fmt, ...);
+void NetUnpack(char *bs, int bslen, char *fmt, ...);
 
 NetNode NetNodeNew(int fd);
 void NetNodeFree(NetNode *n);

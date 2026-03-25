@@ -48,20 +48,20 @@ void sigint(int sig) {
 //   [typeid] 1
 //   [seq] sequence number
 //   [string] alias
-//   NetPackBlock: "%b%w%s"
+//   NetPackMsg: "%b%w%s"
 //
 // Ack message:
 //   [typeid] 2
 //   [seq] client sequence number being responded to
-//   [string] 
-//   NetPackBlock: "%b%w%s"
+//   [string] additional ack text, usually left blank
+//   NetPackMsg: "%b%w%s"
 //
 // Command message:
 //   [typeid] 3
 //   [seq] sequence number
 //   [string] command
 //   Ex command: "list users"
-//   NetPackBlock: "%b%w%s"
+//   NetPackMsg: "%b%w%s"
 //
 // Chat message:
 //   [typeid] 4
@@ -69,7 +69,7 @@ void sigint(int sig) {
 //   [string] alias from
 //   [string] alias to
 //   [string] chat text
-//   NetPackBlock: "%b%w%s%s%s"
+//   NetPackMsg: "%b%w%s%s%s"
 //
 
 // Sequence of messages:
@@ -79,35 +79,71 @@ void sigint(int sig) {
 // 4. Client sends message to server
 //
 
-void client_connected(NetSelectCtx *ctx, NetNode *client) {
-    fprintf(stderr, "Connected to client %d\n", client->fd);
-}
-void client_sent_block(NetSelectCtx *ctx, NetNode *client, char *blk, u16 blk_len) {
-    u8 typeid = *((u8 *) blk);
+void print_msg(char *msg, u16 msglen) {
+    u8 typeid = *((u8 *) msg);
     u16 seq=0;
 
     if (typeid == 1) {
         String alias = StringNew("");
-        NetUnpack(blk, blk_len, "%b%w%s", &typeid, &seq, &alias);
-        printf("Client %d info message received.\n[%d] '%.*s'\n", client->fd, seq, alias.len, alias.bs);
+        NetUnpack(msg, msglen, "%b%w%s", &typeid, &seq, &alias);
+        printf("** Client Info [%d] alias: '%.*s' **\n", seq, alias.len, alias.bs);
+
+        StringFree(&alias);
+    } else if (typeid == 2) {
+        String acktext = StringNew("");
+        NetUnpack(msg, msglen, "%b%w%s", &typeid, &seq, &acktext);
+        printf("** Ack [%d] text: '%.*s' **\n", seq, acktext.len, acktext.bs);
+
+        StringFree(&acktext);
+    } else if (typeid == 3) {
+        String cmd = StringNew("");
+        NetUnpack(msg, msglen, "%b%w%s", &typeid, &seq, &cmd);
+        printf("** Command [%d] text: '%.*s' **\n", seq, cmd.len, cmd.bs);
+
+        StringFree(&cmd);
+    } else if (typeid == 4) {
+        String from_alias = StringNew("");
+        String to_alias = StringNew("");
+        String text = StringNew("");
+        NetUnpack(msg, msglen, "%b%w%s%s%s", &typeid, &seq, &from_alias, &to_alias, &text);
+        printf("** Chat [%d] from: '%.*s' to: '%.*s' text: '%.*s' **\n", seq, from_alias.len, from_alias.bs, to_alias.len, to_alias.bs, text.len, text.bs);
+
+        StringFree(&from_alias);
+        StringFree(&to_alias);
+        StringFree(&text);
+    }
+}
+
+void client_connected(NetSelectCtx *ctx, NetNode *client) {
+    fprintf(stderr, "Connected to client %d\n", client->fd);
+}
+void client_sent_msg(NetSelectCtx *ctx, NetNode *client, char *msg, u16 msglen) {
+    u8 typeid = *((u8 *) msg);
+    u16 seq=0;
+
+    if (typeid == 1) {
+        String alias = StringNew("");
+        NetUnpack(msg, msglen, "%b%w%s", &typeid, &seq, &alias);
         StringAssign(&client->alias, alias.bs);
         StringFree(&alias);
 
         // Send ack
         typeid = 2;
         char *ackstr = "ack2";
-        NetPackBlock(&client->writebuf, "%b%w%s", typeid, seq, ackstr);
+        client->seq++;
+        NetPackMsg(&client->writebuf, "%b%w%s", typeid, client->seq, ackstr);
         NetSend(client->fd, &client->writebuf);
     } else if (typeid == 4) {
         String from_alias = StringNew("");
         String to_alias = StringNew("");
         String text = StringNew("");
-        NetUnpack(blk, blk_len, "%b%w%s%s%s", &typeid, &seq, &from_alias, &to_alias, &text);
+        NetUnpack(msg, msglen, "%b%w%s%s%s", &typeid, &seq, &from_alias, &to_alias, &text);
 
         // Redirect chat message to to_alias client
         NetNode *to_client = NetNodeArrayFindAlias(ctx->nodes, to_alias.bs);
         if (to_client) {
-            NetPackBlock(&to_client->writebuf, "%b%w%s%s%s", typeid, seq, from_alias.bs, to_alias.bs, text.bs);
+            client->seq++;
+            NetPackMsg(&to_client->writebuf, "%b%w%s%s%s", typeid, client->seq, from_alias.bs, to_alias.bs, text.bs);
             NetSend(to_client->fd, &to_client->writebuf);
             if (to_client->writebuf.len > 0) {
                 FD_SET(to_client->fd, &ctx->writefds);
@@ -119,7 +155,10 @@ void client_sent_block(NetSelectCtx *ctx, NetNode *client, char *blk, u16 blk_le
         }
         StringFree(&from_alias);
         StringFree(&to_alias);
+        StringFree(&text);
     }
+
+    print_msg(msg, msglen);
 }
 void client_end_transmission(NetSelectCtx *ctx, NetNode *client) {
     fprintf(stderr, "Client %d end transmission\n", client->fd);
@@ -210,12 +249,12 @@ int main(int argc, char *argv[]) {
                     Buffer *readbuf = &client->readbuf;
                     Buffer *writebuf = &client->writebuf;
                     while (1) {
-                        if (client->blk_len == 0) {
+                        if (client->msglen == 0) {
                             // Read block length
                             if (readbuf->len >= sizeof(u16)) {
                                 u16 *bs = (u16 *) readbuf->bs;
-                                client->blk_len = ntohs(*bs);
-                                if (client->blk_len == 0) {
+                                client->msglen = ntohs(*bs);
+                                if (client->msglen == 0) {
                                     read_eof = 1;
                                     break;
                                 }
@@ -224,11 +263,11 @@ int main(int argc, char *argv[]) {
                             }
                             break;
                         } else {
-                            // Read block body (blk_len bytes)
-                            if (readbuf->len >= client->blk_len) {
-                                client_sent_block(&ctx, client, readbuf->bs, client->blk_len);
-                                BufferShift(readbuf, client->blk_len);
-                                client->blk_len = 0;
+                            // Read block body (msglen bytes)
+                            if (readbuf->len >= client->msglen) {
+                                client_sent_msg(&ctx, client, readbuf->bs, client->msglen);
+                                BufferShift(readbuf, client->msglen);
+                                client->msglen = 0;
 
                                 // If there are unsent bytes sent from client_received_block()
                                 if (writebuf->len > 0) {

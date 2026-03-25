@@ -166,7 +166,7 @@ int NetSend(int fd, Buffer *buf) {
     return 1;
 }
 
-int vNetPack(Buffer *buf, char *fmt, va_list args) {
+int NetPackV(Buffer *buf, char *fmt, va_list args) {
     int state = 0;  // 0: none, 1: prev '%'
     int nbytes_packed = 0;
 
@@ -222,89 +222,89 @@ int vNetPack(Buffer *buf, char *fmt, va_list args) {
 int NetPack(Buffer *buf, char *fmt, ...) {
     va_list args;
     va_start(args, fmt);
-    int nbytes_packed = vNetPack(buf, fmt, args);
+    int nbytes_packed = NetPackV(buf, fmt, args);
     va_end(args);
 
     return nbytes_packed;
 }
 
 // Like NetPack() but prefixes the block length (u16) at the start of the block.
-int NetPackBlock(Buffer *buf, char *fmt, ...) {
+int NetPackMsg(Buffer *buf, char *fmt, ...) {
     // Add 0 block length first, this will be overwritten later.
-    u16 blklen = 0;
-    BufferAppend(buf, (char *) &blklen, sizeof(blklen));
+    u16 msglen = 0;
+    BufferAppend(buf, (char *) &msglen, sizeof(msglen));
 
     va_list args;
     va_start(args, fmt);
 
     // Add the body
-    blklen = vNetPack(buf, fmt, args);
+    msglen = NetPackV(buf, fmt, args);
 
     // Fill in the block length value at the start of the block.
-    u16 *pblklen = (u16 *) (buf->bs + buf->len - blklen - sizeof(blklen));
-    *pblklen = htons(blklen);
+    u16 *pmsglen = (u16 *) (buf->bs + buf->len - msglen - sizeof(msglen));
+    *pmsglen = htons(msglen);
 
     va_end(args);
 
-    return blklen + sizeof(blklen);
+    return msglen + sizeof(msglen);
 }
 
 // NetUnpack(buf, "BUF %b %w %l %s", &n1, &n2, &n3, s1);
-void NetUnpack(char *blk, int blklen, char *fmt, ...) {
+void NetUnpack(char *bs, int bslen, char *fmt, ...) {
     int state = 0;  // 0: none, 1: prev '%'
     va_list args;
 
     va_start(args, fmt);
-    char *pblk = blk;
-    char *maxp = blk + blklen - 1;
+    char *pbs = bs;
+    char *maxp = bs + bslen - 1;
     for (char *pfmt = fmt; *pfmt != 0; pfmt++) {
-        if (pblk > maxp) return;
+        if (pbs > maxp) return;
 
         if (state == 0) {
             if (*pfmt == '%') {
                 state = 1;
                 continue;
             }
-            pblk++;
-            if (pblk > maxp) return;
+            pbs++;
+            if (pbs > maxp) return;
             continue;
         }
         if (state == 1) {
             if (*pfmt == 'b') {
                 u8 *ch = va_arg(args, u8*);
-                *ch = *pblk;
-                pblk++;
-                if (pblk > maxp) return;
+                *ch = *pbs;
+                pbs++;
+                if (pbs > maxp) return;
             } else if (*pfmt == 'w') {
                 u16 *w = va_arg(args, u16*);
-                *w = *pblk << 8;
-                pblk++;
-                if (pblk > maxp) return;
-                *w |= *pblk;
-                pblk++;
+                *w = *pbs << 8;
+                pbs++;
+                if (pbs > maxp) return;
+                *w |= *pbs;
+                pbs++;
             } else if (*pfmt == 'l') {
                 u32 *l = va_arg(args, u32 *);
-                *l = *pblk << 24;
-                pblk++;
-                if (pblk > maxp) return;
-                *l |= *pblk << 16;
-                pblk++;
-                if (pblk > maxp) return;
-                *l |= *pblk << 8;
-                pblk++;
-                if (pblk > maxp) return;
-                *l |= *pblk;
-                pblk++;
+                *l = *pbs << 24;
+                pbs++;
+                if (pbs > maxp) return;
+                *l |= *pbs << 16;
+                pbs++;
+                if (pbs > maxp) return;
+                *l |= *pbs << 8;
+                pbs++;
+                if (pbs > maxp) return;
+                *l |= *pbs;
+                pbs++;
             } else if (*pfmt == 's') {
                 String *str = (String *) va_arg(args, void *);
-                u16 slen = *pblk << 8;
-                pblk++;
-                if (pblk > maxp) return;
-                slen |= *pblk;
-                pblk++;
-                if (pblk > maxp) return;
-                StringAssignFromBytes(str, pblk, slen);
-                pblk += slen;
+                u16 slen = *pbs << 8;
+                pbs++;
+                if (pbs > maxp) return;
+                slen |= *pbs;
+                pbs++;
+                if (pbs > maxp) return;
+                StringAssignFromBytes(str, pbs, slen);
+                pbs += slen;
             } else {
                 // Ignore any unsupported %? spec
             }
@@ -318,9 +318,10 @@ void NetUnpack(char *blk, int blklen, char *fmt, ...) {
 NetNode NetNodeNew(int fd) {
     NetNode n;
     n.fd = fd;
+    n.seq = 0;
     n.readbuf = BufferNew(4096);
     n.writebuf = BufferNew(4096);
-    n.blk_len = 0;
+    n.msglen = 0;
     n.shut_rd = 0;
     n.shut_wr = 0;
     n.alias = StringNew("");
