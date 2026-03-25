@@ -171,8 +171,10 @@ int NetSend2(int fd, Buffer *buf, NetSelectCtx *ctx) {
     // Can also use  if (buf.len == 0)
     if (z == 0) {
         FD_CLR(fd, &ctx->writefds);
-        if (fd == ctx->maxfd)
-            ctx->maxfd--;
+    } else if (z == 1) {
+        FD_SET(fd, &ctx->writefds);
+        if (fd > ctx->maxfd)
+            ctx->maxfd = fd;
     }
     return z;
 }

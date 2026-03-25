@@ -16,6 +16,7 @@
 
 #include "clib.h"
 #include "cnet.h"
+#include "msg.h"
 
 void print_clients(NetSelectCtx ctx) {
     printf("Clients: ");
@@ -79,88 +80,38 @@ void sigint(int sig) {
 // 4. Client sends message to server
 //
 
-void print_msg(char *msg, u16 msglen) {
-    u8 typeid = *((u8 *) msg);
-    u16 seq=0;
-
-    if (typeid == 1) {
-        String alias = StringNew("");
-        NetUnpack(msg, msglen, "%b%w%s", &typeid, &seq, &alias);
-        printf("** Client Info [%d] alias: '%.*s' **\n", seq, alias.len, alias.bs);
-
-        StringFree(&alias);
-    } else if (typeid == 2) {
-        String acktext = StringNew("");
-        NetUnpack(msg, msglen, "%b%w%s", &typeid, &seq, &acktext);
-        printf("** Ack [%d] text: '%.*s' **\n", seq, acktext.len, acktext.bs);
-
-        StringFree(&acktext);
-    } else if (typeid == 3) {
-        String cmd = StringNew("");
-        NetUnpack(msg, msglen, "%b%w%s", &typeid, &seq, &cmd);
-        printf("** Command [%d] text: '%.*s' **\n", seq, cmd.len, cmd.bs);
-
-        StringFree(&cmd);
-    } else if (typeid == 4) {
-        String from_alias = StringNew("");
-        String to_alias = StringNew("");
-        String text = StringNew("");
-        NetUnpack(msg, msglen, "%b%w%s%s%s", &typeid, &seq, &from_alias, &to_alias, &text);
-        printf("** Chat [%d] from: '%.*s' to: '%.*s' text: '%.*s' **\n", seq, from_alias.len, from_alias.bs, to_alias.len, to_alias.bs, text.len, text.bs);
-
-        StringFree(&from_alias);
-        StringFree(&to_alias);
-        StringFree(&text);
-    }
-}
-
 void client_connected(NetSelectCtx *ctx, NetNode *client) {
     fprintf(stderr, "Connected to client %d\n", client->fd);
 }
-void client_sent_msg(NetSelectCtx *ctx, NetNode *client, char *msg, u16 msglen) {
-    u8 typeid = *((u8 *) msg);
+void client_sent_msg(NetSelectCtx *ctx, NetNode *client, char *msgbytes, u16 len) {
+    u8 msgid = *((u8 *) msgbytes);
     u16 seq=0;
 
-    if (typeid == 1) {
-        String alias = StringNew("");
-        NetUnpack(msg, msglen, "%b%w%s", &typeid, &seq, &alias);
-        StringAssign(&client->alias, alias.bs);
-        StringFree(&alias);
+    if (msgid == MSGID_CLIENTINFO) {
+        ClientInfoMsg *p = unpack_message(msgbytes, len);
+        StringAssign(&client->alias, p->alias.bs);
+        free_message(p);
 
         // Send ack
-        typeid = 2;
-        char *ackstr = "ack2";
         client->seq++;
-        NetPackMsg(&client->writebuf, "%b%w%s", typeid, client->seq, ackstr);
+        NetPackMsg(&client->writebuf, "%b%w%s", MSGID_ACK, client->seq, "ack");
         NetSend2(client->fd, &client->writebuf, ctx);
-    } else if (typeid == 4) {
-        String from_alias = StringNew("");
-        String to_alias = StringNew("");
-        String text = StringNew("");
-        NetUnpack(msg, msglen, "%b%w%s%s%s", &typeid, &seq, &from_alias, &to_alias, &text);
+    } else if (msgid == MSGID_CHAT) {
+        ChatMsg *p = unpack_message(msgbytes, len);
 
         // Redirect chat message to to_alias client
-        NetNode *to_client = NetNodeArrayFindAlias(ctx->nodes, to_alias.bs);
-        if (to_client) {
+        NetNode *dest_client = NetNodeArrayFindAlias(ctx->nodes, p->to_alias.bs);
+        if (dest_client) {
             client->seq++;
-            NetPackMsg(&to_client->writebuf, "%b%w%s%s%s", typeid, client->seq, from_alias.bs, to_alias.bs, text.bs);
-            NetSend2(to_client->fd, &to_client->writebuf, ctx);
-
-            // If not all bytes sent, send it in next select() iteration.
-            if (to_client->writebuf.len > 0) {
-                FD_SET(to_client->fd, &ctx->writefds);
-                if (to_client->fd > ctx->maxfd)
-                    ctx->maxfd = to_client->fd;
-            }
+            NetPackMsg(&dest_client->writebuf, "%b%w%s%s%s", msgid, client->seq, p->from_alias.bs, p->to_alias.bs, p->text.bs);
+            NetSend2(dest_client->fd, &dest_client->writebuf, ctx);
         } else {
-            fprintf(stderr, "Can't find to_alias '%.*s' in clients\n", to_alias.len, to_alias.bs);
+            fprintf(stderr, "Can't find to_alias '%.*s' in clients\n", p->to_alias.len, p->to_alias.bs);
         }
-        StringFree(&from_alias);
-        StringFree(&to_alias);
-        StringFree(&text);
+        free_message(p);
     }
 
-    print_msg(msg, msglen);
+    print_msg(msgbytes, len);
 }
 void client_end_transmission(NetSelectCtx *ctx, NetNode *client) {
     fprintf(stderr, "Client %d end transmission\n", client->fd);
@@ -249,7 +200,6 @@ int main(int argc, char *argv[]) {
                     // [u16] 0 (zero block length, end of blocks)
 
                     Buffer *readbuf = &client->readbuf;
-                    Buffer *writebuf = &client->writebuf;
                     while (1) {
                         if (client->msglen == 0) {
                             // Read block length
@@ -270,13 +220,6 @@ int main(int argc, char *argv[]) {
                                 client_sent_msg(&ctx, client, readbuf->bs, client->msglen);
                                 BufferShift(readbuf, client->msglen);
                                 client->msglen = 0;
-
-                                // If there are unsent bytes sent from client_received_block()
-                                if (writebuf->len > 0) {
-                                    FD_SET(clientfd, &ctx.writefds);
-                                    if (clientfd > ctx.maxfd)
-                                        ctx.maxfd = clientfd;
-                                }
                                 continue;
                             }
                             break;
@@ -289,7 +232,7 @@ int main(int argc, char *argv[]) {
                         client->shut_rd = 1;
 
                         // Remove client if no remaining reads and writes.
-                        if (writebuf->len == 0) {
+                        if (client->writebuf.len == 0) {
                             NetNodeArrayRemove(&ctx.nodes, clientfd);
                             FD_CLR(clientfd, &ctx.writefds);
                             shutdown(clientfd, SHUT_WR);
@@ -307,11 +250,10 @@ int main(int argc, char *argv[]) {
                     continue;
                 }
 
-                Buffer *writebuf = &client->writebuf;
-                NetSend2(clientfd, writebuf, &ctx);
+                NetSend2(clientfd, &client->writebuf, &ctx);
 
                 // Remove client if no remaining reads and writes.
-                if (writebuf->len == 0 && client->shut_rd) {
+                if (client->writebuf.len == 0 && client->shut_rd) {
                     NetNodeArrayRemove(&ctx.nodes, clientfd);
                     shutdown(clientfd, SHUT_WR);
                     close(clientfd);

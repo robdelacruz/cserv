@@ -14,6 +14,7 @@
 
 #include "clib.h"
 #include "cnet.h"
+#include "msg.h"
 
 void sigint(int sig) {
     printf("\nTerminating Server.\n");
@@ -28,16 +29,15 @@ void sigint(int sig) {
 
 int clientstate = 0;
 
-void server_sent_msg(NetSelectCtx *ctx, NetNode *server, char *msg, u16 msglen) {
-    u8 typeid = *((u8 *) msg);
+void server_sent_msg(NetSelectCtx *ctx, NetNode *server, char *msgbytes, u16 len) {
+    u8 msgid = *((u8 *) msgbytes);
     u16 seq = 0;
 
     if (clientstate == WAITING_CLIENT_INFO_ACK) {
-        if (typeid == 2) {
-            String ackstr = StringNew("");
-            NetUnpack(msg, msglen, "%b%w%s", &typeid, &seq, &ackstr);
-            printf("Server sent ack '%.*s'\n", ackstr.len, ackstr.bs);
-            StringFree(&ackstr);
+        if (msgid == MSGID_ACK) {
+            AckMsg *p = unpack_message(msgbytes, len);
+            printf("Server sent ack '%.*s'\n", p->acktext.len, p->acktext.bs);
+            free_message(p);
 
             clientstate = READY;
         }
@@ -80,11 +80,9 @@ int main(int argc, char *argv[]) {
     char *alias = "rob";
     server.seq++;
     NetPackMsg(&server.writebuf, "%b%w%s", typeid, server.seq, alias);
-    z = NetSend(serverfd, &server.writebuf);
+    z = NetSend2(serverfd, &server.writebuf, &ctx);
     if (z == 0)
         clientstate = WAITING_CLIENT_INFO_ACK;
-    else
-        FD_SET(serverfd, &ctx.writefds);
 
     fd_set tmp_readfds, tmp_writefds;
     while (1) {
