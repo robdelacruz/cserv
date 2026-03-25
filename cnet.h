@@ -42,6 +42,7 @@ int OpenConnectSocket(char *host, char *port, int backlog, struct sockaddr *sa);
 void GetTextIPAddress(struct sockaddr *sa, String *dest);
 int NetRecv(int fd, Buffer *buf);
 int NetSend(int fd, Buffer *buf);
+int NetSend2(int fd, Buffer *buf, NetSelectCtx *ctx);
 int NetPack(Buffer *buf, char *fmt, ...);
 int NetPackMsg(Buffer *buf, char *fmt, ...);
 void NetUnpack(char *bs, int bslen, char *fmt, ...);

@@ -21,30 +21,30 @@ void sigint(int sig) {
 }
 
 // Client states
-#define OFFLINE 0
 #define CONNECTED 1
-#define WAITING_SERVER_ACK 2
-#define SERVER_READY 3
-#define WAITING_SERVER_RESPONSE 4
+#define WAITING_CLIENT_INFO_ACK 2
+#define READY 3
+#define WAITING_RESPONSE 4
 
 int clientstate = 0;
 
-void server_sent_msg(int serverfd, char *msg, u16 msglen, Buffer *writebuf) {
+void server_sent_msg(NetSelectCtx *ctx, NetNode *server, char *msg, u16 msglen) {
     u8 typeid = *((u8 *) msg);
     u16 seq = 0;
-    printf("Server %d received typeid: %d\n", serverfd, (int) typeid);
 
-    if (clientstate == WAITING_SERVER_ACK) {
+    if (clientstate == WAITING_CLIENT_INFO_ACK) {
         if (typeid == 2) {
             String ackstr = StringNew("");
             NetUnpack(msg, msglen, "%b%w%s", &typeid, &seq, &ackstr);
             printf("Server sent ack '%.*s'\n", ackstr.len, ackstr.bs);
             StringFree(&ackstr);
+
+            clientstate = READY;
         }
     }
 }
-void server_end_transmission(int serverfd) {
-    fprintf(stderr, "Server %d end transmission\n", serverfd);
+void server_end_transmission(NetSelectCtx *ctx, NetNode *server) {
+    fprintf(stderr, "Server %d end transmission\n", server->fd);
 }
 
 int main(int argc, char *argv[]) {
@@ -82,7 +82,7 @@ int main(int argc, char *argv[]) {
     NetPackMsg(&server.writebuf, "%b%w%s", typeid, server.seq, alias);
     z = NetSend(serverfd, &server.writebuf);
     if (z == 0)
-        clientstate = WAITING_SERVER_ACK;
+        clientstate = WAITING_CLIENT_INFO_ACK;
     else
         FD_SET(serverfd, &ctx.writefds);
 
@@ -120,7 +120,7 @@ int main(int argc, char *argv[]) {
                 } else {
                     // Read msg body (msglen bytes)
                     if (server.readbuf.len >= server.msglen) {
-                        server_sent_msg(serverfd, server.readbuf.bs, server.msglen, &server.writebuf);
+                        server_sent_msg(&ctx, &server, server.readbuf.bs, server.msglen);
                         BufferShift(&server.readbuf, server.msglen);
                         server.msglen = 0;
                         continue;
@@ -129,7 +129,7 @@ int main(int argc, char *argv[]) {
                 }
             }
             if (read_eof) {
-                server_end_transmission(serverfd);
+                server_end_transmission(&ctx, &server);
                 FD_CLR(serverfd, &ctx.readfds);
                 shutdown(serverfd, SHUT_RD);
                 server.shut_rd = 1;
@@ -143,21 +143,12 @@ int main(int argc, char *argv[]) {
             }
         }
         if (FD_ISSET(serverfd, &tmp_writefds)) {
-            printf("FD_ISSET()...\n");
-            z = NetSend(serverfd, &server.writebuf);
-            if (z == 0) {
-                FD_CLR(serverfd, &ctx.writefds);
-                clientstate = WAITING_SERVER_ACK;
-            } else if (z == 1) {
-                continue;
-            } else {
-                fprintf(stderr, "Failed to send to server.\n");
-                continue;
-            }
+            z = NetSend2(serverfd, &server.writebuf, &ctx);
+            if (z == 0)
+                clientstate = WAITING_CLIENT_INFO_ACK;
 
             // Close serverfd if no remaining reads and writes.
-            if (server.writebuf.len == 0 && server.shut_rd) {
-                FD_CLR(serverfd, &ctx.writefds);
+            if (z == 0 && server.shut_rd) {
                 shutdown(serverfd, SHUT_WR);
                 break;
             }

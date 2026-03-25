@@ -132,7 +132,7 @@ void client_sent_msg(NetSelectCtx *ctx, NetNode *client, char *msg, u16 msglen) 
         char *ackstr = "ack2";
         client->seq++;
         NetPackMsg(&client->writebuf, "%b%w%s", typeid, client->seq, ackstr);
-        NetSend(client->fd, &client->writebuf);
+        NetSend2(client->fd, &client->writebuf, ctx);
     } else if (typeid == 4) {
         String from_alias = StringNew("");
         String to_alias = StringNew("");
@@ -144,7 +144,9 @@ void client_sent_msg(NetSelectCtx *ctx, NetNode *client, char *msg, u16 msglen) 
         if (to_client) {
             client->seq++;
             NetPackMsg(&to_client->writebuf, "%b%w%s%s%s", typeid, client->seq, from_alias.bs, to_alias.bs, text.bs);
-            NetSend(to_client->fd, &to_client->writebuf);
+            NetSend2(to_client->fd, &to_client->writebuf, ctx);
+
+            // If not all bytes sent, send it in next select() iteration.
             if (to_client->writebuf.len > 0) {
                 FD_SET(to_client->fd, &ctx->writefds);
                 if (to_client->fd > ctx->maxfd)
@@ -298,7 +300,6 @@ int main(int argc, char *argv[]) {
             }
             if (FD_ISSET(i, &tmp_writefds)) {
                 int clientfd = i;
-//                fprintf(stderr, "Sending data to client %d\n", clientfd);
 
                 NetNode *client = NetNodeArrayFind(ctx.nodes, clientfd);
                 if (client == NULL) {
@@ -307,12 +308,11 @@ int main(int argc, char *argv[]) {
                 }
 
                 Buffer *writebuf = &client->writebuf;
-                NetSend(clientfd, writebuf);
+                NetSend2(clientfd, writebuf, &ctx);
 
                 // Remove client if no remaining reads and writes.
                 if (writebuf->len == 0 && client->shut_rd) {
                     NetNodeArrayRemove(&ctx.nodes, clientfd);
-                    FD_CLR(clientfd, &ctx.writefds);
                     shutdown(clientfd, SHUT_WR);
                     close(clientfd);
                 }

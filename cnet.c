@@ -166,6 +166,17 @@ int NetSend(int fd, Buffer *buf) {
     return 1;
 }
 
+int NetSend2(int fd, Buffer *buf, NetSelectCtx *ctx) {
+    int z = NetSend(fd, buf);
+    // Can also use  if (buf.len == 0)
+    if (z == 0) {
+        FD_CLR(fd, &ctx->writefds);
+        if (fd == ctx->maxfd)
+            ctx->maxfd--;
+    }
+    return z;
+}
+
 int NetPackV(Buffer *buf, char *fmt, va_list args) {
     int state = 0;  // 0: none, 1: prev '%'
     int nbytes_packed = 0;
