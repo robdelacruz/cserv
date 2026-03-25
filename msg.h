@@ -9,6 +9,9 @@
 #define MSGID_COMMAND 3
 #define MSGID_CHAT 4
 
+#define MSGID_FROM_MSGBYTES(msgbytes) (*((u8 *)msgbytes))
+#define MSGID_FROM_STRUCT(msgstruct) (((BlankMsg *) msg)->msgid)
+
 typedef struct {
     u8 msgid;
     u16 seq;

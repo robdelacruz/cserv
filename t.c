@@ -84,7 +84,7 @@ void client_connected(NetSelectCtx *ctx, NetNode *client) {
     fprintf(stderr, "Connected to client %d\n", client->fd);
 }
 void client_sent_msg(NetSelectCtx *ctx, NetNode *client, char *msgbytes, u16 len) {
-    u8 msgid = *((u8 *) msgbytes);
+    u8 msgid = MSGID_FROM_MSGBYTES(msgbytes);
     u16 seq=0;
 
     if (msgid == MSGID_CLIENTINFO) {

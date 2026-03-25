@@ -5,7 +5,7 @@
 #include "msg.h"
 
 void print_msg(char *msgbytes, u16 len) {
-    u8 msgid = *((u8 *) msgbytes);
+    u8 msgid = MSGID_FROM_MSGBYTES(msgbytes);
 
     void *pmsg = unpack_message(msgbytes, len);
     if (msgid == MSGID_CLIENTINFO) {
@@ -27,7 +27,7 @@ void print_msg(char *msgbytes, u16 len) {
 }
 
 void *unpack_message(char *msgbytes, u16 len) {
-    u8 msgid = *((u8 *) msgbytes);
+    u8 msgid = MSGID_FROM_MSGBYTES(msgbytes);
 
     if (msgid == MSGID_CLIENTINFO) {
         ClientInfoMsg *p = (ClientInfoMsg *) malloc(sizeof(ClientInfoMsg));
@@ -58,7 +58,7 @@ void *unpack_message(char *msgbytes, u16 len) {
 }
 
 void free_message(void *msg) {
-    u8 msgid = ((BlankMsg *) msg)->msgid;
+    u8 msgid = MSGID_FROM_STRUCT(msg);
 
     if (msgid == MSGID_CLIENTINFO) {
         ClientInfoMsg *p = (ClientInfoMsg *) msg;

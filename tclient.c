@@ -30,7 +30,7 @@ void sigint(int sig) {
 int clientstate = 0;
 
 void server_sent_msg(NetSelectCtx *ctx, NetNode *server, char *msgbytes, u16 len) {
-    u8 msgid = *((u8 *) msgbytes);
+    u8 msgid = MSGID_FROM_MSGBYTES(msgbytes);
     u16 seq = 0;
 
     if (clientstate == WAITING_CLIENT_INFO_ACK) {
