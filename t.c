@@ -84,20 +84,21 @@ void client_connected(NetSelectCtx *ctx, NetNode *client) {
     fprintf(stderr, "Connected to client %d\n", client->fd);
 }
 void client_sent_msg(NetSelectCtx *ctx, NetNode *client, char *msgbytes, u16 len) {
-    u8 msgid = MSGID_FROM_MSGBYTES(msgbytes);
-    u16 seq=0;
+    void *msg = unpack_message(msgbytes, len);
+    if (msg == NULL)
+        return;
 
-    if (msgid == MSGID_CLIENTINFO) {
-        ClientInfoMsg *p = unpack_message(msgbytes, len);
+    u8 msgid = GET_MSGID(msg);
+    if (msgid == MSGID_IDENTITY) {
+        IdentityMsg *p = msg;
         StringAssign(&client->alias, p->alias.bs);
-        free_message(p);
 
         // Send ack
         client->seq++;
         NetPackMsg(&client->writebuf, "%b%w%s", MSGID_ACK, client->seq, "ack");
         NetSend2(client->fd, &client->writebuf, ctx);
     } else if (msgid == MSGID_CHAT) {
-        ChatMsg *p = unpack_message(msgbytes, len);
+        ChatMsg *p = msg;
 
         // Redirect chat message to to_alias client
         NetNode *dest_client = NetNodeArrayFindAlias(ctx->nodes, p->to_alias.bs);
@@ -108,10 +109,10 @@ void client_sent_msg(NetSelectCtx *ctx, NetNode *client, char *msgbytes, u16 len
         } else {
             fprintf(stderr, "Can't find to_alias '%.*s' in clients\n", p->to_alias.len, p->to_alias.bs);
         }
-        free_message(p);
     }
 
-    print_msg(msgbytes, len);
+    print_message(msg);
+    free_message(msg);
 }
 void client_end_transmission(NetSelectCtx *ctx, NetNode *client) {
     fprintf(stderr, "Client %d end transmission\n", client->fd);
@@ -178,7 +179,6 @@ int main(int argc, char *argv[]) {
                     client_connected(&ctx, &client);
                 } else {
                     int clientfd = i;
-                    fprintf(stderr, "Received data from client %d\n", clientfd);
 
                     NetNode *client = NetNodeArrayFind(ctx.nodes, clientfd);
                     if (client == NULL) {

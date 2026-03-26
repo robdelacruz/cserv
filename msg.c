@@ -4,33 +4,29 @@
 #include "clib.h"
 #include "msg.h"
 
-void print_msg(char *msgbytes, u16 len) {
-    u8 msgid = MSGID_FROM_MSGBYTES(msgbytes);
+void print_message(void *msg) {
+    u8 msgid = GET_MSGID(msg);
 
-    void *pmsg = unpack_message(msgbytes, len);
-    if (msgid == MSGID_CLIENTINFO) {
-        ClientInfoMsg *p = pmsg;
-        printf("** Client Info [%d] alias: '%.*s' **\n", p->seq, p->alias.len, p->alias.bs);
+    if (msgid == MSGID_IDENTITY) {
+        IdentityMsg *p = msg;
+        printf("** Identity [%d] alias: '%.*s' **\n", p->seq, p->alias.len, p->alias.bs);
     } else if (msgid == MSGID_ACK) {
-        AckMsg *p = pmsg;
+        AckMsg *p = msg;
         printf("** Ack [%d] text: '%.*s' **\n", p->seq, p->acktext.len, p->acktext.bs);
     } else if (msgid == MSGID_COMMAND) {
-        CommandMsg *p = pmsg;
+        CommandMsg *p = msg;
         printf("** Command [%d] text: '%.*s' **\n", p->seq, p->command.len, p->command.bs);
     } else if (msgid == MSGID_CHAT) {
-        ChatMsg *p = pmsg;
+        ChatMsg *p = msg;
         printf("** Chat [%d] from: '%.*s' to: '%.*s' text: '%.*s' **\n", p->seq, p->from_alias.len, p->from_alias.bs, p->to_alias.len, p->to_alias.bs, p->text.len, p->text.bs);
     }
-
-    if (pmsg)
-        free_message(pmsg);
 }
 
 void *unpack_message(char *msgbytes, u16 len) {
-    u8 msgid = MSGID_FROM_MSGBYTES(msgbytes);
+    u8 msgid = GET_MSGID(msgbytes);
 
-    if (msgid == MSGID_CLIENTINFO) {
-        ClientInfoMsg *p = (ClientInfoMsg *) malloc(sizeof(ClientInfoMsg));
+    if (msgid == MSGID_IDENTITY) {
+        IdentityMsg *p = (IdentityMsg *) malloc(sizeof(IdentityMsg));
         p->alias = StringNew("");
         NetUnpack(msgbytes, len, "%b%w%s", &p->msgid, &p->seq, &p->alias);
         return p;
@@ -58,10 +54,10 @@ void *unpack_message(char *msgbytes, u16 len) {
 }
 
 void free_message(void *msg) {
-    u8 msgid = MSGID_FROM_STRUCT(msg);
+    u8 msgid = GET_MSGID(msg);
 
-    if (msgid == MSGID_CLIENTINFO) {
-        ClientInfoMsg *p = (ClientInfoMsg *) msg;
+    if (msgid == MSGID_IDENTITY) {
+        IdentityMsg *p = (IdentityMsg *) msg;
         StringFree(&p->alias);
         free(p);
     } else if (msgid == MSGID_ACK) {

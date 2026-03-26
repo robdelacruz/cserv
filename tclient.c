@@ -23,25 +23,28 @@ void sigint(int sig) {
 
 // Client states
 #define CONNECTED 1
-#define WAITING_CLIENT_INFO_ACK 2
+#define WAITING_IDENTITY_ACK 2
 #define READY 3
 #define WAITING_RESPONSE 4
 
 int clientstate = 0;
 
 void server_sent_msg(NetSelectCtx *ctx, NetNode *server, char *msgbytes, u16 len) {
-    u8 msgid = MSGID_FROM_MSGBYTES(msgbytes);
-    u16 seq = 0;
+    void *msg = unpack_message(msgbytes, len);
+    if (msg == NULL)
+        return;
 
-    if (clientstate == WAITING_CLIENT_INFO_ACK) {
+    u8 msgid = GET_MSGID(msgbytes);
+
+    if (clientstate == WAITING_IDENTITY_ACK) {
         if (msgid == MSGID_ACK) {
-            AckMsg *p = unpack_message(msgbytes, len);
-            printf("Server sent ack '%.*s'\n", p->acktext.len, p->acktext.bs);
-            free_message(p);
-
+            AckMsg *p = msg;
+            print_message(p);
             clientstate = READY;
         }
     }
+
+    free_message(msg);
 }
 void server_end_transmission(NetSelectCtx *ctx, NetNode *server) {
     fprintf(stderr, "Server %d end transmission\n", server->fd);
@@ -76,13 +79,13 @@ int main(int argc, char *argv[]) {
     clientstate = CONNECTED;
 
     // Send Client Info message to server
-    u8 typeid = 1;
+    u8 msgid = MSGID_IDENTITY;
     char *alias = "rob";
     server.seq++;
-    NetPackMsg(&server.writebuf, "%b%w%s", typeid, server.seq, alias);
+    NetPackMsg(&server.writebuf, "%b%w%s", msgid, server.seq, alias);
     z = NetSend2(serverfd, &server.writebuf, &ctx);
     if (z == 0)
-        clientstate = WAITING_CLIENT_INFO_ACK;
+        clientstate = WAITING_IDENTITY_ACK;
 
     fd_set tmp_readfds, tmp_writefds;
     while (1) {
@@ -143,7 +146,7 @@ int main(int argc, char *argv[]) {
         if (FD_ISSET(serverfd, &tmp_writefds)) {
             z = NetSend2(serverfd, &server.writebuf, &ctx);
             if (z == 0)
-                clientstate = WAITING_CLIENT_INFO_ACK;
+                clientstate = WAITING_IDENTITY_ACK;
 
             // Close serverfd if no remaining reads and writes.
             if (z == 0 && server.shut_rd) {

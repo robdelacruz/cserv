@@ -4,13 +4,12 @@
 #include "clib.h"
 #include "cnet.h"
 
-#define MSGID_CLIENTINFO 1
+#define MSGID_IDENTITY 1
 #define MSGID_ACK 2
 #define MSGID_COMMAND 3
 #define MSGID_CHAT 4
 
-#define MSGID_FROM_MSGBYTES(msgbytes) (*((u8 *)msgbytes))
-#define MSGID_FROM_STRUCT(msgstruct) (((BlankMsg *) msg)->msgid)
+#define GET_MSGID(msgbytes) (*((u8 *)msgbytes))
 
 typedef struct {
     u8 msgid;
@@ -21,7 +20,7 @@ typedef struct {
     u8 msgid;
     u16 seq;
     String alias;
-} ClientInfoMsg;
+} IdentityMsg;
 
 typedef struct {
     u8 msgid;
@@ -43,7 +42,7 @@ typedef struct {
     String text;
 } ChatMsg;
 
-void print_msg(char *msgbytes, u16 len);
+void print_message(void *msg);
 void *unpack_message(char *msgbytes, u16 len);
 void free_message(void *msg);
 
