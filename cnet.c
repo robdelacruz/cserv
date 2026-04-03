@@ -365,7 +365,7 @@ void NetNodeArrayFree(NetNodeArray *na) {
     na->len = 0;
 }
 void NetNodeArrayClear(NetNodeArray *na) {
-    memset(na->items, 0, sizeof(sizeof(NetNode)*na->len));
+    memset(na->items, 0, sizeof(NetNode)*na->len);
     na->len = 0;
 }
 void NetNodeArrayAppend(NetNodeArray *na, NetNode n) {

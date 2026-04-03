@@ -224,4 +224,19 @@ void BufferShift(Buffer *buf, int n) {
     memset(buf->bs + buf->len, 0, buf->cap - buf->len);
 }
 
+Map MapNew(u16 cap) {
+    Map m;
+    return m;
+}
+void MapFree(Map *m) {
+}
+void MapClear(Map *m) {
+}
+void MapAdd(Map *m, char *k, void *v) {
+}
+void *MapGet(Map m, char *k) {
+    return NULL;
+}
+void *MapRemove(Map *m, char *k) {
+}
 

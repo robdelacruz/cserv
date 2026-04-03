@@ -31,6 +31,13 @@ typedef struct {
     u32 cap;
 } Buffer;
 
+typedef struct {
+    void *items;
+    u16 len;
+    u16 cap;
+    i8 isfreevals;
+} Map;
+
 void panic(char *s);
 
 String StringNew(char *s);
@@ -55,5 +62,12 @@ void BufferClear(Buffer *buf);
 void BufferAppend(Buffer *buf, char *bs, u32 bslen);
 void BufferAppendChar(Buffer *buf, unsigned char c);
 void BufferShift(Buffer *buf, int n);
+
+Map MapNew(u16 cap);
+void MapFree(Map *m);
+void MapClear(Map *m);
+void MapAdd(Map *m, char *k, void *v);
+void *MapGet(Map m, char *k);
+void *MapRemove(Map *m, char *k);
 
 #endif
