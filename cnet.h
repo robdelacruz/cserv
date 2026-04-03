@@ -44,7 +44,7 @@ int NetRecv(int fd, Buffer *buf);
 int NetSend(int fd, Buffer *buf);
 int NetSend2(int fd, Buffer *buf, NetSelectCtx *ctx);
 int NetPack(Buffer *buf, char *fmt, ...);
-int NetPackMsg(Buffer *buf, char *fmt, ...);
+int NetPackLen(Buffer *buf, char *fmt, ...);
 void NetUnpack(char *bs, int bslen, char *fmt, ...);
 
 NetNode NetNodeNew(int fd);

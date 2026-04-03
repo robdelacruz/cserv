@@ -5,77 +5,86 @@
 #include "msg.h"
 
 void print_message(void *msg) {
-    u8 msgid = GET_MSGID(msg);
+    u8 msgno = MSGNO(msg);
 
-    if (msgid == MSGID_IDENTITY) {
-        IdentityMsg *p = msg;
-        printf("** Identity [%d] alias: '%.*s' **\n", p->seq, p->alias.len, p->alias.bs);
-    } else if (msgid == MSGID_ACK) {
-        AckMsg *p = msg;
-        printf("** Ack [%d] text: '%.*s' **\n", p->seq, p->acktext.len, p->acktext.bs);
-    } else if (msgid == MSGID_COMMAND) {
+    if (msgno == REGISTERMSG) {
+        RegisterMsg *p = msg;
+        printf("** Register alias: '%.*s' pwd: '%.*s' **\n", p->alias.len, p->alias.bs, p->pwd.len, p->pwd.bs);
+    } else if (msgno == LOGINMSG) {
+        LoginMsg *p = msg;
+        printf("** Login alias: '%.*s' pwd: '%.*s' **\n", p->alias.len, p->alias.bs, p->pwd.len, p->pwd.bs);
+    } else if (msgno == COMMANDMSG) {
         CommandMsg *p = msg;
-        printf("** Command [%d] text: '%.*s' **\n", p->seq, p->command.len, p->command.bs);
-    } else if (msgid == MSGID_CHAT) {
-        ChatMsg *p = msg;
-        printf("** Chat [%d] from: '%.*s' to: '%.*s' text: '%.*s' **\n", p->seq, p->from_alias.len, p->from_alias.bs, p->to_alias.len, p->to_alias.bs, p->text.len, p->text.bs);
+        printf("** Command: '%.*s' **\n", p->command.len, p->command.bs);
+    } else if (msgno == ALIASESMSG) {
+        AliasesMsg *p = msg;
+        StringList aliases = StringSplit(p->aliases, ";");
+        printf("** Aliases: ");
+        for (int i=0; i < aliases.len; i++) {
+            String alias = aliases.items[i];
+            printf("%.*s", alias.len, alias.bs);
+            if (i < aliases.len-1)
+                printf(", ");
+        }
+        printf(" **\n");
+        StringListFree(&aliases);
     }
 }
 
 void *unpack_message(char *msgbytes, u16 len) {
-    u8 msgid = GET_MSGID(msgbytes);
+    u8 msgno = MSGNO(msgbytes);
 
-    if (msgid == MSGID_IDENTITY) {
-        IdentityMsg *p = (IdentityMsg *) malloc(sizeof(IdentityMsg));
+    if (msgno == REGISTERMSG) {
+        RegisterMsg *p = (RegisterMsg *) malloc(sizeof(RegisterMsg));
         p->alias = StringNew("");
-        NetUnpack(msgbytes, len, "%b%w%s", &p->msgid, &p->seq, &p->alias);
+        p->pwd = StringNew("");
+        NetUnpack(msgbytes, len, "%b%s%s", &p->msgno, &p->alias, &p->pwd);
         return p;
-    } else if (msgid == MSGID_ACK) {
-        AckMsg *p = (AckMsg *) malloc(sizeof(AckMsg));
-        p->acktext = StringNew("");
-        NetUnpack(msgbytes, len, "%b%w%s", &p->msgid, &p->seq, &p->acktext);
+    } else if (msgno == LOGINMSG) {
+        LoginMsg *p = (LoginMsg *) malloc(sizeof(LoginMsg));
+        p->alias = StringNew("");
+        p->pwd = StringNew("");
+        NetUnpack(msgbytes, len, "%b%s%s", &p->msgno, &p->alias, &p->pwd);
         return p;
-    } else if (msgid == MSGID_COMMAND) {
+    } else if (msgno == COMMANDMSG) {
         CommandMsg *p = (CommandMsg *) malloc(sizeof(CommandMsg));
         p->command = StringNew("");
-        NetUnpack(msgbytes, len, "%b%w%s", &p->msgid, &p->seq, &p->command);
+        NetUnpack(msgbytes, len, "%b%s", &p->msgno, &p->command);
         return p;
-    } else if (msgid == MSGID_CHAT) {
-        ChatMsg *p = (ChatMsg *) malloc(sizeof(ChatMsg));
-        p->from_alias = StringNew("");
-        p->to_alias = StringNew("");
-        p->text = StringNew("");
-        NetUnpack(msgbytes, len, "%b%w%s%s%s", &p->msgid, &p->seq, &p->from_alias, &p->to_alias, &p->text);
+    } else if (msgno == ALIASESMSG) {
+        AliasesMsg *p = (AliasesMsg *) malloc(sizeof(AliasesMsg));
+        p->aliases = StringNew("");
+        NetUnpack(msgbytes, len, "%b%s", &p->msgno, &p->aliases);
         return p;
     }
 
-    fprintf(stderr, "unpack_message(): Unrecognized msgid %d\n", msgid);
+    fprintf(stderr, "unpack_message(): Unrecognized msgno %d\n", msgno);
     return NULL;
 }
 
 void free_message(void *msg) {
-    u8 msgid = GET_MSGID(msg);
+    u8 msgno = MSGNO(msg);
 
-    if (msgid == MSGID_IDENTITY) {
-        IdentityMsg *p = (IdentityMsg *) msg;
+    if (msgno == REGISTERMSG) {
+        RegisterMsg *p = msg;
         StringFree(&p->alias);
+        StringFree(&p->pwd);
         free(p);
-    } else if (msgid == MSGID_ACK) {
-        AckMsg *p = (AckMsg *) msg;
-        StringFree(&p->acktext);
+    } else if (msgno == LOGINMSG) {
+        LoginMsg *p = msg;
+        StringFree(&p->alias);
+        StringFree(&p->pwd);
         free(p);
-    } else if (msgid == MSGID_COMMAND) {
-        CommandMsg *p = (CommandMsg *) msg;
+    } else if (msgno == COMMANDMSG) {
+        CommandMsg *p = msg;
         StringFree(&p->command);
         free(p);
-    } else if (msgid == MSGID_CHAT) {
-        ChatMsg *p = (ChatMsg *) msg;
-        StringFree(&p->from_alias);
-        StringFree(&p->to_alias);
-        StringFree(&p->text);
+    } else if (msgno == ALIASESMSG) {
+        AliasesMsg *p = msg;
+        StringFree(&p->aliases);
         free(p);
     } else {
-        fprintf(stderr, "free_message(): Unrecognized msgid %d\n", msgid);
+        fprintf(stderr, "free_message(): Unrecognized msgno %d\n", msgno);
     }
 }
 

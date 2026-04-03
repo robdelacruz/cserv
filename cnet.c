@@ -242,7 +242,7 @@ int NetPack(Buffer *buf, char *fmt, ...) {
 }
 
 // Like NetPack() but prefixes the block length (u16) at the start of the block.
-int NetPackMsg(Buffer *buf, char *fmt, ...) {
+int NetPackLen(Buffer *buf, char *fmt, ...) {
     // Add 0 block length first, this will be overwritten later.
     u16 msglen = 0;
     BufferAppend(buf, (char *) &msglen, sizeof(msglen));

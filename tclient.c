@@ -34,13 +34,12 @@ void server_sent_msg(NetSelectCtx *ctx, NetNode *server, char *msgbytes, u16 len
     if (msg == NULL)
         return;
 
-    u8 msgid = GET_MSGID(msgbytes);
+    u8 msgno = MSGNO(msgbytes);
 
-    if (clientstate == WAITING_IDENTITY_ACK) {
-        if (msgid == MSGID_ACK) {
-            AckMsg *p = msg;
+    if (clientstate == WAITING_RESPONSE) {
+        if (msgno == ALIASESMSG) {
+            AliasesMsg *p = msg;
             print_message(p);
-            clientstate = READY;
         }
     }
 
@@ -78,14 +77,13 @@ int main(int argc, char *argv[]) {
 
     clientstate = CONNECTED;
 
-    // Send Client Info message to server
-    u8 msgid = MSGID_IDENTITY;
-    char *alias = "rob";
-    server.seq++;
-    NetPackMsg(&server.writebuf, "%b%w%s", msgid, server.seq, alias);
+    // Send command message to server
+    u8 msgno = COMMANDMSG;
+    char *command = "list users";
+    NetPackLen(&server.writebuf, "%b%s", msgno, command);
     z = NetSend2(serverfd, &server.writebuf, &ctx);
     if (z == 0)
-        clientstate = WAITING_IDENTITY_ACK;
+        clientstate = WAITING_RESPONSE;
 
     fd_set tmp_readfds, tmp_writefds;
     while (1) {

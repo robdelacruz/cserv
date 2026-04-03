@@ -49,20 +49,20 @@ void sigint(int sig) {
 //   [typeid] 1
 //   [seq] sequence number
 //   [string] alias
-//   NetPackMsg: "%b%w%s"
+//   NetPackLen: "%b%w%s"
 //
 // Ack message:
 //   [typeid] 2
 //   [seq] client sequence number being responded to
 //   [string] additional ack text, usually left blank
-//   NetPackMsg: "%b%w%s"
+//   NetPackLen: "%b%w%s"
 //
 // Command message:
 //   [typeid] 3
 //   [seq] sequence number
 //   [string] command
 //   Ex command: "list users"
-//   NetPackMsg: "%b%w%s"
+//   NetPackLen: "%b%w%s"
 //
 // Chat message:
 //   [typeid] 4
@@ -70,7 +70,7 @@ void sigint(int sig) {
 //   [string] alias from
 //   [string] alias to
 //   [string] chat text
-//   NetPackMsg: "%b%w%s%s%s"
+//   NetPackLen: "%b%w%s%s%s"
 //
 
 // Sequence of messages:
@@ -88,26 +88,12 @@ void client_sent_msg(NetSelectCtx *ctx, NetNode *client, char *msgbytes, u16 len
     if (msg == NULL)
         return;
 
-    u8 msgid = GET_MSGID(msg);
-    if (msgid == MSGID_IDENTITY) {
-        IdentityMsg *p = msg;
-        StringAssign(&client->alias, p->alias.bs);
-
-        // Send ack
-        client->seq++;
-        NetPackMsg(&client->writebuf, "%b%w%s", MSGID_ACK, client->seq, "ack");
-        NetSend2(client->fd, &client->writebuf, ctx);
-    } else if (msgid == MSGID_CHAT) {
-        ChatMsg *p = msg;
-
-        // Redirect chat message to to_alias client
-        NetNode *dest_client = NetNodeArrayFindAlias(ctx->nodes, p->to_alias.bs);
-        if (dest_client) {
-            client->seq++;
-            NetPackMsg(&dest_client->writebuf, "%b%w%s%s%s", msgid, client->seq, p->from_alias.bs, p->to_alias.bs, p->text.bs);
-            NetSend2(dest_client->fd, &dest_client->writebuf, ctx);
-        } else {
-            fprintf(stderr, "Can't find to_alias '%.*s' in clients\n", p->to_alias.len, p->to_alias.bs);
+    u8 msgno = MSGNO(msg);
+    if (msgno == COMMANDMSG) {
+        CommandMsg *p = msg;
+        if (StringEquals(p->command, "list users")) {
+            NetPackLen(&client->writebuf, "%b%s", ALIASESMSG, "admin;robtwister;user1");
+            NetSend2(client->fd, &client->writebuf, ctx);
         }
     }
 
@@ -190,14 +176,10 @@ int main(int argc, char *argv[]) {
                     if (NetRecv(clientfd, &client->readbuf) == 0)
                         read_eof = 1;
 
-                    // Message format:
-                    // [block 1], [block 2], ... [0]
-                    //
-                    // [u16] block length
-                    // [block length bytes] block body
-                    // [u16] next block length
-                    // [next block length bytes] next block body
-                    // [u16] 0 (zero block length, end of blocks)
+                    // Each message is a sequence of bytes.
+                    // To send a message, first send a 16bit value containing the size of the message (msglen)
+                    // followed by the stream of msglen message bytes.
+                    // To terminate the stream, send a 0 msglen value.
 
                     Buffer *readbuf = &client->readbuf;
                     while (1) {

@@ -4,43 +4,34 @@
 #include "clib.h"
 #include "cnet.h"
 
-#define MSGID_IDENTITY 1
-#define MSGID_ACK 2
-#define MSGID_COMMAND 3
-#define MSGID_CHAT 4
+#define REGISTERMSG 1
+#define LOGINMSG 2
+#define COMMANDMSG 3
+#define ALIASESMSG 4
 
-#define GET_MSGID(msgbytes) (*((u8 *)msgbytes))
-
-typedef struct {
-    u8 msgid;
-    u16 seq;
-} BlankMsg;
+#define MSGNO(bs) (*((u8 *)bs))
 
 typedef struct {
-    u8 msgid;
-    u16 seq;
+    u8 msgno;
     String alias;
-} IdentityMsg;
+    String pwd;
+} RegisterMsg;
 
 typedef struct {
-    u8 msgid;
-    u16 seq;
-    String acktext;
-} AckMsg;
+    u8 msgno;
+    String alias;
+    String pwd;
+} LoginMsg;
 
 typedef struct {
-    u8 msgid;
-    u16 seq;
+    u8 msgno;
     String command;
 } CommandMsg;
 
 typedef struct {
-    u8 msgid;
-    u16 seq;
-    String from_alias;
-    String to_alias;
-    String text;
-} ChatMsg;
+    u8 msgno;
+    String aliases;
+} AliasesMsg;
 
 void print_message(void *msg);
 void *unpack_message(char *msgbytes, u16 len);
