@@ -116,6 +116,7 @@ void StringListFree(StringList *sl) {
     free(sl->items);
     sl->items = 0;
     sl->len = 0;
+    sl->cap = 0;
 }
 void StringListAppend(StringList *sl, String str) {
     assert(sl->len <= sl->cap);
@@ -226,17 +227,82 @@ void BufferShift(Buffer *buf, int n) {
 
 Map MapNew(u16 cap) {
     Map m;
+    if (cap == 0)
+        cap = 32;
+    cap*=2;
+    m.items = (void **) malloc(sizeof(void *)*cap);
+    memset(m.items, 0, sizeof(void *)*cap);
+    m.len = 0;
+    m.cap = cap;
+    m.isfreevals = 0;
     return m;
 }
 void MapFree(Map *m) {
+    for (int i=0; i < m->len; i+=2) {
+        free(m->items[i]);
+        if (m->isfreevals)
+            free(m->items[i+1]);
+    }
+    free(m->items);
+    m->items = 0;
+    m->len = 0;
+    m->cap = 0;
 }
 void MapClear(Map *m) {
+    for (int i=0; i < m->len; i+=2) {
+        free(m->items[i]);
+        if (m->isfreevals)
+            free(m->items[i+1]);
+    }
+    memset(m->items, 0, sizeof(void *)*m->cap);
+    m->len = 0;
 }
-void MapAdd(Map *m, char *k, void *v) {
+void MapSet(Map *m, char *k, void *v) {
+    assert(m->len <= m->cap);
+
+    // Overwrite v if k already in map.
+    for (int i=0; i < m->len; i+=2) {
+        if (strcmp(m->items[i], k) == 0) {
+            if (m->isfreevals)
+                free(m->items[i+1]);
+            m->items[i+1] = v;
+            return;
+        }
+    }
+
+    // Double the capacity if more space needed.
+    if (m->len == m->cap) {
+        m->items = (void **) realloc(m->items, sizeof(void *)*m->cap * 2);
+        memset(m->items + sizeof(void *)+m->cap, 0, sizeof(void *)+m->cap);
+        m->cap *= 2;
+    }
+    assert(m->len < m->cap);
+
+    m->items[m->len] = strdup(k);
+    m->items[m->len+1] = v;
+    m->len += 2;
 }
 void *MapGet(Map m, char *k) {
+    for (int i=0; i < m.len; i+=2) {
+        if (strcmp(m.items[i], k) == 0)
+            return m.items[i+1];
+    }
     return NULL;
 }
 void *MapRemove(Map *m, char *k) {
+    for (int i=0; i < m->len; i+=2) {
+        if (strcmp(m->items[i], k) == 0) {
+            free(m->items[i]);
+            if (m->isfreevals) {
+                free(m->items[i+1]);
+            }
+            // Move last item to the spot where the deleted item is.
+            m->items[i] = m->items[m->len-2];
+            m->items[i+1] = m->items[m->len-1];
+
+            memset(&m->items[m->len-2], 0, sizeof(void *)*2);
+            m->len -= 2;
+        }
+    }
 }
 

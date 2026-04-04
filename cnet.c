@@ -391,6 +391,7 @@ void NetNodeArrayRemove(NetNodeArray *na, int fd) {
     if (i == na->len)
         return;
     // Move last item to the spot where the deleted item is.
+    NetNodeFree(&na->items[i]);
     na->items[i] = na->items[na->len-1];
 
     memset(&na->items[na->len-1], 0, sizeof(NetNode));

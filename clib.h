@@ -32,7 +32,7 @@ typedef struct {
 } Buffer;
 
 typedef struct {
-    void *items;
+    void **items;
     u16 len;
     u16 cap;
     i8 isfreevals;
@@ -66,7 +66,7 @@ void BufferShift(Buffer *buf, int n);
 Map MapNew(u16 cap);
 void MapFree(Map *m);
 void MapClear(Map *m);
-void MapAdd(Map *m, char *k, void *v);
+void MapSet(Map *m, char *k, void *v);
 void *MapGet(Map m, char *k);
 void *MapRemove(Map *m, char *k);
 

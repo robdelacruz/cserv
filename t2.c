@@ -17,51 +17,25 @@
 #include "clib.h"
 #include "cnet.h"
 
-short twoscomp(unsigned short u16) {
-    short i16;
-
-    if (u16 <= 0x7fff)
-        return u16;
-
-    i16 = -1 - (0xffff-u16);
-    return i16;
-
-}
-void twoscomp_test() {
-    unsigned short u16s[] = {1, 2, 0, 32700, 32767, 32768, 65535};
-
-    for (int i=0; i < countof(u16s); i++) {
-        unsigned short us = u16s[i];
-        short s = twoscomp(us);
-
-        printf("unsigned short: %d = short %d\n", us, s);
+void printmap(Map m) {
+    printf("map len: %d cap: %d\n", m.len, m.cap);
+    for (int i=0; i < m.len; i+=2) {
+        printf("  %s: '%s'\n", (char *) m.items[i], (char *) m.items[i+1]);
     }
-
-    short n = -2;
-    printf("twoscomp(%d) = %d\n", (unsigned short) n, twoscomp((unsigned short) n));
 }
 
 int main(int argc, char *argv[]) {
-    Buffer buf = BufferNew(10);
+    Map m = MapNew(1);
+    MapSet(&m, "abc", "Here's a string");
+    MapSet(&m, "def", "def string");
+    MapSet(&m, "ghi", "ghi string");
+    MapSet(&m, "abc", "abc string");
+    MapSet(&m, "def", "DEF string");
+    printmap(m);
 
-    NetPack(&buf, "%w%b%w   %s%b%s%w", 0x1234, 0x9d, 0xfdea, "abc123def", 0xd8, "1234 567", 0x7770);
-
-    for (int i=0; i < buf.len; i++) {
-        printf("%.2x ", (unsigned char) buf.bs[i]);
-    }
-    printf("\n");
-
-    u16 w1, w2, w3;
-    u8 b1, b2;
-    String str1 = StringNew("");
-    String str2 = StringNew("");
-    NetUnpack(buf.bs, buf.len, "%w%b%w   %s%b%s%w", &w1, &b1, &w2, &str1, &b2, &str2, &w3);
-    printf("w1: %x w2: %x w3: %x\n", w1, w2, w3);
-    printf("b1: %x b2: %x\n", b1, b2);
-    printf("str1: '%.*s'\n", str1.len, str1.bs);
-    printf("str2: '%.*s'\n", str2.len, str2.bs);
-
-    BufferFree(&buf);
+    MapClear(&m);
+    printmap(m);
+    MapFree(&m);
 
     return 0;
 }

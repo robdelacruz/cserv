@@ -30,55 +30,17 @@ void sigint(int sig) {
     exit(0);
 }
 
-// Message structure:
-// [2 bytes] message length
-// [1 byte] typeid describing the format of the message
-// [n bytes] body of the message  
-//
-// [typeid]:
-//   [1 byte] message id
-//
-// [seq]:
-//   [2 bytes] sequence number
-//
-// [string]:
-//   [2 bytes] number of bytes in string
-//   [n bytes] characters in the string
-//
-// Client info message:
-//   [typeid] 1
-//   [seq] sequence number
-//   [string] alias
-//   NetPackLen: "%b%w%s"
-//
-// Ack message:
-//   [typeid] 2
-//   [seq] client sequence number being responded to
-//   [string] additional ack text, usually left blank
-//   NetPackLen: "%b%w%s"
-//
-// Command message:
-//   [typeid] 3
-//   [seq] sequence number
-//   [string] command
-//   Ex command: "list users"
-//   NetPackLen: "%b%w%s"
-//
-// Chat message:
-//   [typeid] 4
-//   [seq] sequence number
-//   [string] alias from
-//   [string] alias to
-//   [string] chat text
-//   NetPackLen: "%b%w%s%s%s"
-//
+typedef struct {
+    String alias;
+    String pwdhash;
+} User;
 
-// Sequence of messages:
-// 1. Client connects to server
-// 2. Client sends Client info message to server
-// 3. Server sends Ack message back to client
-// 4. Client sends message to server
-//
+typedef struct {
+    User registered_users[255];
+    User online_users[255];
+    int num_registered_users;
+    int num_online_users;
+} ServerLedger;
 
 void client_connected(NetSelectCtx *ctx, NetNode *client) {
     fprintf(stderr, "Connected to client %d\n", client->fd);
