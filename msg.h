@@ -42,6 +42,7 @@ typedef struct {
 
 void print_message(void *msg);
 void *unpack_message(char *msgbytes, u16 len);
+void pack_message(void *msg, Buffer *buf);
 void free_message(void *msg);
 
 #endif

@@ -46,19 +46,28 @@ void client_sent_msg(NetSelectCtx *ctx, NetNode *client, char *msgbytes, u16 len
     if (msgno == COMMANDMSG) {
         CommandMsg *p = msg;
         if (StringEquals(p->command, "list users")) {
-            NetPackLen(&client->writebuf, "%b%s", ALIASESMSG, "admin;robtwister;user1");
+            AliasesMsg msg = {ALIASESMSG, StringNew("admin;robtwister;user1")};
+            pack_message(&msg, &client->writebuf);
+            StringFree(msg.aliases);
+//            NetPackLen(&client->writebuf, "%b%s", ALIASESMSG, "admin;robtwister;user1");
             NetSend2(client->fd, &client->writebuf, ctx);
         }
     } else if (msgno == REGISTERMSG) {
         RegisterMsg *p = msg;
         int z = RegisterUser(&serverdata, p->alias.bs, p->pwd.bs);
         if (z != 0) {
+            StatusMsg msg = {STATUSMSG, z, StringNew(server_strerror(z))};
+            pack_message(&msg, &client->writebuf);
+            StringFree(msg.statustext);
             // Return status error msg
-            NetPackLen(&client->writebuf, "%b%b%s", STATUSMSG, z, server_strerror(z));
+//            NetPackLen(&client->writebuf, "%b%b%s", STATUSMSG, z, server_strerror(z));
             NetSend2(client->fd, &client->writebuf, ctx);
         } else {
+            StatusMsg msg = {STATUSMSG, z, StringNew(server_strerror(z))};
+            pack_message(&msg, &client->writebuf);
+            StringFree(msg.statustext);
             // Return status ok msg
-            NetPackLen(&client->writebuf, "%b%b%s", STATUSMSG, 0, server_strerror(0));
+//            NetPackLen(&client->writebuf, "%b%b%s", STATUSMSG, 0, server_strerror(0));
             NetSend2(client->fd, &client->writebuf, ctx);
             ServerDataSave(serverdata);
         }

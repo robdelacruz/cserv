@@ -36,7 +36,6 @@ void print_message(void *msg) {
 
 void *unpack_message(char *msgbytes, u16 len) {
     u8 msgno = MSGNO(msgbytes);
-
     if (msgno == STATUSMSG) {
         StatusMsg *p = (StatusMsg *) malloc(sizeof(StatusMsg));
         p->statustext = StringNew("");
@@ -68,6 +67,28 @@ void *unpack_message(char *msgbytes, u16 len) {
 
     fprintf(stderr, "unpack_message(): Unrecognized msgno %d\n", msgno);
     return NULL;
+}
+
+void pack_message(void *msg, Buffer *buf) {
+    u8 msgno = MSGNO(msg);
+    if (msgno == STATUSMSG) {
+        StatusMsg *p = msg;
+        NetPackLen(buf, "%b%b%s", msgno, p->statusno, p->statustext.bs);
+    } else if (msgno == REGISTERMSG) {
+        RegisterMsg *p = msg;
+        NetPackLen(buf, "%b%s%s", msgno, p->alias.bs, p->pwd.bs);
+    } else if (msgno == LOGINMSG) {
+        LoginMsg *p = msg;
+        NetPackLen(buf, "%b%s%s", msgno, p->alias.bs, p->pwd.bs);
+    } else if (msgno == COMMANDMSG) {
+        CommandMsg *p = msg;
+        NetPackLen(buf, "%b%s", msgno, p->command.bs);
+    } else if (msgno == ALIASESMSG) {
+        AliasesMsg *p = msg;
+        NetPackLen(buf, "%b%s", msgno, p->aliases.bs);
+    } else {
+        fprintf(stderr, "pack_message(): Unrecognized msgno %d\n", msgno);
+    }
 }
 
 void free_message(void *msg) {
