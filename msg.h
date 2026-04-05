@@ -4,12 +4,19 @@
 #include "clib.h"
 #include "cnet.h"
 
-#define REGISTERMSG 1
-#define LOGINMSG 2
-#define COMMANDMSG 3
-#define ALIASESMSG 4
+#define STATUSMSG 1
+#define REGISTERMSG 2
+#define LOGINMSG 3
+#define COMMANDMSG 4
+#define ALIASESMSG 5
 
 #define MSGNO(bs) (*((u8 *)bs))
+
+typedef struct {
+    u8 msgno;
+    u8 statusno;
+    String statustext;
+} StatusMsg;
 
 typedef struct {
     u8 msgno;

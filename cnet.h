@@ -50,11 +50,11 @@ void NetUnpack(char *bs, int bslen, char *fmt, ...);
 NetNode NetNodeNew(int fd);
 void NetNodeFree(NetNode *n);
 NetNodeArray NetNodeArrayNew(u16 cap);
-void NetNodeArrayFree(NetNodeArray *na);
-void NetNodeArrayClear(NetNodeArray *na);
-void NetNodeArrayAppend(NetNodeArray *na, NetNode n);
-void NetNodeArrayRemove(NetNodeArray *na, int fd);
-NetNode *NetNodeArrayFind(NetNodeArray na, int fd);
-NetNode *NetNodeArrayFindAlias(NetNodeArray na, char *alias);
+void NetNodeArrayFree(NetNodeArray *a);
+void NetNodeArrayClear(NetNodeArray *a);
+void NetNodeArrayAppend(NetNodeArray *a, NetNode n);
+void NetNodeArrayRemove(NetNodeArray *a, int fd);
+NetNode *NetNodeArrayFind(NetNodeArray a, int fd);
+NetNode *NetNodeArrayFindAlias(NetNodeArray a, char *alias);
 
 #endif

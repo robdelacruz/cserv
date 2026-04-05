@@ -342,73 +342,69 @@ NetNode NetNodeNew(int fd) {
 }
 void NetNodeFree(NetNode *n) {
     n->fd = 0;
-    BufferFree(&n->readbuf);
-    BufferFree(&n->writebuf);
-    StringFree(&n->alias);
+    BufferFree(n->readbuf);
+    BufferFree(n->writebuf);
+    StringFree(n->alias);
 }
 
 NetNodeArray NetNodeArrayNew(u16 cap) {
-    NetNodeArray na;
+    NetNodeArray a;
     if (cap == 0)
         cap = 32;
-    na.items = (NetNode *) malloc(sizeof(NetNode)*cap);
-    memset(na.items, 0, sizeof(NetNode)*cap);
-    na.len = 0;
-    na.cap = cap;
-    return na;
+    a.items = (NetNode *) malloc(sizeof(NetNode)*cap);
+    memset(a.items, 0, sizeof(NetNode)*cap);
+    a.len = 0;
+    a.cap = cap;
+    return a;
 }
-void NetNodeArrayFree(NetNodeArray *na) {
-    for (int i=0; i < na->len; i++)
-        NetNodeFree(&na->items[i]);
-    free(na->items);
-    na->items = 0;
-    na->len = 0;
+void NetNodeArrayFree(NetNodeArray *a) {
+    for (int i=0; i < a->len; i++)
+        NetNodeFree(&a->items[i]);
+    free(a->items);
+    a->items = 0;
+    a->len = 0;
 }
-void NetNodeArrayClear(NetNodeArray *na) {
-    memset(na->items, 0, sizeof(NetNode)*na->len);
-    na->len = 0;
+void NetNodeArrayClear(NetNodeArray *a) {
+    memset(a->items, 0, sizeof(NetNode)*a->len);
+    a->len = 0;
 }
-void NetNodeArrayAppend(NetNodeArray *na, NetNode n) {
-    assert(na->len <= na->cap);
+void NetNodeArrayAppend(NetNodeArray *a, NetNode n) {
+    assert(a->len <= a->cap);
 
     // Double the capacity if more space needed.
-    if (na->len == na->cap) {
-        na->items = (NetNode *) realloc(na->items, sizeof(NetNode)*na->cap * 2);
-        memset(na->items + sizeof(NetNode)*na->cap, 0, sizeof(NetNode)*na->cap);
-        na->cap *= 2;
+    if (a->len == a->cap) {
+        a->items = realloc(a->items, sizeof(n)*a->cap * 2);
+        memset(a->items + sizeof(n)*a->cap, 0, sizeof(n)*a->cap);
+        a->cap *= 2;
     }
-    assert(na->len < na->cap);
+    assert(a->len < a->cap);
 
-    na->items[na->len] = n;
-    na->len++;
+    a->items[a->len] = n;
+    a->len++;
 }
-void NetNodeArrayRemove(NetNodeArray *na, int fd) {
-    int i;
-    for (i=0; i < na->len; i++) {
-        if (na->items[i].fd == fd)
-            break;
+void NetNodeArrayRemove(NetNodeArray *a, int fd) {
+    for (int i=0; i < a->len; i++) {
+        if (a->items[i].fd == fd) {
+            NetNodeFree(&a->items[i]);
+            // Move last index to the delete index.
+            if (a->len > 1)
+                a->items[i] = a->items[a->len-1];
+            memset(&a->items[a->len-1], 0, sizeof(NetNode));
+            a->len--;
+        }
     }
-    if (i == na->len)
-        return;
-    // Move last item to the spot where the deleted item is.
-    NetNodeFree(&na->items[i]);
-    na->items[i] = na->items[na->len-1];
-
-    memset(&na->items[na->len-1], 0, sizeof(NetNode));
-    na->len--;
 }
-NetNode *NetNodeArrayFind(NetNodeArray na, int fd) {
-    for (int i=0; i < na.len; i++) {
-        if (na.items[i].fd == fd)
-            return &na.items[i];
+NetNode *NetNodeArrayFind(NetNodeArray a, int fd) {
+    for (int i=0; i < a.len; i++) {
+        if (a.items[i].fd == fd)
+            return &a.items[i];
     }
     return NULL;
 }
-
-NetNode *NetNodeArrayFindAlias(NetNodeArray na, char *alias) {
-    for (int i=0; i < na.len; i++) {
-        if (StringEquals(na.items[i].alias, alias))
-            return &na.items[i];
+NetNode *NetNodeArrayFindAlias(NetNodeArray a, char *alias) {
+    for (int i=0; i < a.len; i++) {
+        if (StringEquals(a.items[i].alias, alias))
+            return &a.items[i];
     }
     return NULL;
 }

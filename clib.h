@@ -42,7 +42,7 @@ void panic(char *s);
 
 String StringNew(char *s);
 String StringNewFromBytes(char *bs, int bslen);
-void StringFree(String *str);
+void StringFree(String str);
 String StringDup(String src);
 String StringFormat(const char *fmt, ...);
 void StringAppend(String *str, char *s);
@@ -50,21 +50,22 @@ void StringAssign(String *str, char *s);
 void StringAssignFromBytes(String *str, char *bs, int bslen);
 int StringSearch(String str, int startpos, char *searchstr);
 int StringEquals(String str, char *s);
+StringList StringSplit(String str, char *sep);
+void StringTrim(String str);
 
 StringList StringListNew(u16 cap);
-void StringListFree(StringList *sl);
+void StringListFree(StringList sl);
 void StringListAppend(StringList *sl, String str);
-StringList StringSplit(String str, char *sep);
 
 Buffer BufferNew(u32 cap);
-void BufferFree(Buffer *buf);
+void BufferFree(Buffer buf);
 void BufferClear(Buffer *buf);
 void BufferAppend(Buffer *buf, char *bs, u32 bslen);
 void BufferAppendChar(Buffer *buf, unsigned char c);
 void BufferShift(Buffer *buf, int n);
 
 Map MapNew(u16 cap);
-void MapFree(Map *m);
+void MapFree(Map m);
 void MapClear(Map *m);
 void MapSet(Map *m, char *k, void *v);
 void *MapGet(Map m, char *k);

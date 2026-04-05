@@ -7,7 +7,10 @@
 void print_message(void *msg) {
     u8 msgno = MSGNO(msg);
 
-    if (msgno == REGISTERMSG) {
+    if (msgno == STATUSMSG) {
+        StatusMsg *p = msg;
+        printf("** Status statusno: %d statustext: '%.*s' **\n", p->statusno, p->statustext.len, p->statustext.bs);
+    } else if (msgno == REGISTERMSG) {
         RegisterMsg *p = msg;
         printf("** Register alias: '%.*s' pwd: '%.*s' **\n", p->alias.len, p->alias.bs, p->pwd.len, p->pwd.bs);
     } else if (msgno == LOGINMSG) {
@@ -27,14 +30,19 @@ void print_message(void *msg) {
                 printf(", ");
         }
         printf(" **\n");
-        StringListFree(&aliases);
+        StringListFree(aliases);
     }
 }
 
 void *unpack_message(char *msgbytes, u16 len) {
     u8 msgno = MSGNO(msgbytes);
 
-    if (msgno == REGISTERMSG) {
+    if (msgno == STATUSMSG) {
+        StatusMsg *p = (StatusMsg *) malloc(sizeof(StatusMsg));
+        p->statustext = StringNew("");
+        NetUnpack(msgbytes, len, "%b%b%s", &p->msgno, &p->statusno, &p->statustext);
+        return p;
+    } else if (msgno == REGISTERMSG) {
         RegisterMsg *p = (RegisterMsg *) malloc(sizeof(RegisterMsg));
         p->alias = StringNew("");
         p->pwd = StringNew("");
@@ -65,23 +73,27 @@ void *unpack_message(char *msgbytes, u16 len) {
 void free_message(void *msg) {
     u8 msgno = MSGNO(msg);
 
-    if (msgno == REGISTERMSG) {
+    if (msgno == STATUSMSG) {
+        StatusMsg *p = msg;
+        StringFree(p->statustext);
+        free(p);
+    } else if (msgno == REGISTERMSG) {
         RegisterMsg *p = msg;
-        StringFree(&p->alias);
-        StringFree(&p->pwd);
+        StringFree(p->alias);
+        StringFree(p->pwd);
         free(p);
     } else if (msgno == LOGINMSG) {
         LoginMsg *p = msg;
-        StringFree(&p->alias);
-        StringFree(&p->pwd);
+        StringFree(p->alias);
+        StringFree(p->pwd);
         free(p);
     } else if (msgno == COMMANDMSG) {
         CommandMsg *p = msg;
-        StringFree(&p->command);
+        StringFree(p->command);
         free(p);
     } else if (msgno == ALIASESMSG) {
         AliasesMsg *p = msg;
-        StringFree(&p->aliases);
+        StringFree(p->aliases);
         free(p);
     } else {
         fprintf(stderr, "free_message(): Unrecognized msgno %d\n", msgno);

@@ -17,6 +17,9 @@
 #include "clib.h"
 #include "cnet.h"
 #include "msg.h"
+#include "data.h"
+
+ServerData serverdata;
 
 void print_clients(NetSelectCtx ctx) {
     printf("Clients: ");
@@ -30,22 +33,11 @@ void sigint(int sig) {
     exit(0);
 }
 
-typedef struct {
-    String alias;
-    String pwdhash;
-} User;
-
-typedef struct {
-    User registered_users[255];
-    User online_users[255];
-    int num_registered_users;
-    int num_online_users;
-} ServerLedger;
-
 void client_connected(NetSelectCtx *ctx, NetNode *client) {
     fprintf(stderr, "Connected to client %d\n", client->fd);
 }
 void client_sent_msg(NetSelectCtx *ctx, NetNode *client, char *msgbytes, u16 len) {
+    int z;
     void *msg = unpack_message(msgbytes, len);
     if (msg == NULL)
         return;
@@ -56,6 +48,19 @@ void client_sent_msg(NetSelectCtx *ctx, NetNode *client, char *msgbytes, u16 len
         if (StringEquals(p->command, "list users")) {
             NetPackLen(&client->writebuf, "%b%s", ALIASESMSG, "admin;robtwister;user1");
             NetSend2(client->fd, &client->writebuf, ctx);
+        }
+    } else if (msgno == REGISTERMSG) {
+        RegisterMsg *p = msg;
+        int z = RegisterUser(&serverdata, p->alias.bs, p->pwd.bs);
+        if (z != 0) {
+            // Return status error msg
+            NetPackLen(&client->writebuf, "%b%b%s", STATUSMSG, z, server_strerror(z));
+            NetSend2(client->fd, &client->writebuf, ctx);
+        } else {
+            // Return status ok msg
+            NetPackLen(&client->writebuf, "%b%b%s", STATUSMSG, 0, server_strerror(0));
+            NetSend2(client->fd, &client->writebuf, ctx);
+            ServerDataSave(serverdata);
         }
     }
 
@@ -78,6 +83,9 @@ int main(int argc, char *argv[]) {
 
     signal(SIGINT, sigint);
 
+    serverdata = ServerDataNew();
+    ServerDataLoad(&serverdata);
+
     int backlog = 50;
     struct sockaddr sa;
     int s0 = OpenListenSocket(host, port, backlog, &sa);
@@ -87,7 +95,7 @@ int main(int argc, char *argv[]) {
     String ipaddr = StringNew("");
     GetTextIPAddress(&sa, &ipaddr);
     printf("Listening on %.*s port %s...\n", ipaddr.len, ipaddr.bs, port);
-    StringFree(&ipaddr);
+    StringFree(ipaddr);
 
     NetSelectCtx ctx;
     NetInit(&ctx, s0);

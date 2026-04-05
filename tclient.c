@@ -21,12 +21,6 @@ void sigint(int sig) {
     exit(0);
 }
 
-// Client states
-#define CONNECTED 1
-#define WAITING_IDENTITY_ACK 2
-#define READY 3
-#define WAITING_RESPONSE 4
-
 int clientstate = 0;
 
 void server_sent_msg(NetSelectCtx *ctx, NetNode *server, char *msgbytes, u16 len) {
@@ -35,13 +29,7 @@ void server_sent_msg(NetSelectCtx *ctx, NetNode *server, char *msgbytes, u16 len
         return;
 
     u8 msgno = MSGNO(msgbytes);
-
-    if (clientstate == WAITING_RESPONSE) {
-        if (msgno == ALIASESMSG) {
-            AliasesMsg *p = msg;
-            print_message(p);
-        }
-    }
+    print_message(msg);
 
     free_message(msg);
 }
@@ -69,21 +57,16 @@ int main(int argc, char *argv[]) {
     String ipaddr = StringNew("");
     GetTextIPAddress(&sa, &ipaddr);
     printf("Connected to %.*s port %s...\n", ipaddr.len, ipaddr.bs, serverport);
-    StringFree(&ipaddr);
+    StringFree(ipaddr);
 
     NetNode server = NetNodeNew(serverfd);
     NetSelectCtx ctx;
     NetInit(&ctx, serverfd);
 
-    clientstate = CONNECTED;
-
-    // Send command message to server
-    u8 msgno = COMMANDMSG;
-    char *command = "list users";
-    NetPackLen(&server.writebuf, "%b%s", msgno, command);
+    // Try sending some message to server
+    u8 msgno = REGISTERMSG;
+    NetPackLen(&server.writebuf, "%b%s%s", msgno, "robtwister3", "twister123");
     z = NetSend2(serverfd, &server.writebuf, &ctx);
-    if (z == 0)
-        clientstate = WAITING_RESPONSE;
 
     fd_set tmp_readfds, tmp_writefds;
     while (1) {
@@ -143,8 +126,6 @@ int main(int argc, char *argv[]) {
         }
         if (FD_ISSET(serverfd, &tmp_writefds)) {
             z = NetSend2(serverfd, &server.writebuf, &ctx);
-            if (z == 0)
-                clientstate = WAITING_IDENTITY_ACK;
 
             // Close serverfd if no remaining reads and writes.
             if (z == 0 && server.shut_rd) {

@@ -4,6 +4,7 @@
 #include <string.h>
 #include <limits.h>
 #include <assert.h>
+#include <ctype.h>
 
 #include "clib.h"
 
@@ -28,10 +29,8 @@ String StringNewFromBytes(char *bs, int bslen) {
     str.len = bslen;
     return str;
 }
-void StringFree(String *str) {
-    free(str->bs);
-    str->bs = 0;
-    str->len = 0;
+void StringFree(String str) {
+    free(str.bs);
 }
 String StringDup(String src) {
     String str;
@@ -67,11 +66,11 @@ void StringAppend(String *str, char *s) {
     str->bs[str->len] = 0;
 }
 void StringAssign(String *str, char *s) {
-    StringFree(str);
+    StringFree(*str);
     *str = StringNew(s);
 }
 void StringAssignFromBytes(String *str, char *bs, int bslen) {
-    StringFree(str);
+    StringFree(*str);
     *str = StringNewFromBytes(bs, bslen);
 }
 int StringSearch(String str, int startpos, char *searchstr) {
@@ -96,6 +95,36 @@ int StringEquals(String str, char *s) {
     }
     return 1;
 }
+void StringTrim(String str) {
+    if (str.len == 0)
+        return;
+
+    // set starti to index of first non-whitespace char
+    // set endi to index of last non-whitespace char
+    int starti=0;
+    int endi=str.len-1;
+    for (int i=0; i < str.len; i++) {
+        if (!isspace(str.bs[i]))
+            break;
+        starti++;
+    }
+    for (int i=str.len-1; i >= 0; i--) {
+        if (!isspace(str.bs[i]))
+            break;
+        endi--;
+    }
+    if (starti > str.len-1) {
+        memset(str.bs, 0, str.len);
+        str.len = 0;
+        return;
+    }
+    assert(endi >= starti);
+
+    int newlen = endi-starti+1;
+    memmove(str.bs, str.bs+starti, newlen);
+    memset(str.bs+newlen, 0, str.len-newlen);
+    str.len = newlen;
+}
 
 StringList StringListNew(u16 cap) {
     StringList sl;
@@ -108,15 +137,12 @@ StringList StringListNew(u16 cap) {
     sl.isfreeitems = 0;
     return sl;
 }
-void StringListFree(StringList *sl) {
-    if (sl->isfreeitems) {
-        for (int i=0; i < sl->len; i++)
-            StringFree(&sl->items[i]);
+void StringListFree(StringList sl) {
+    if (sl.isfreeitems) {
+        for (int i=0; i < sl.len; i++)
+            StringFree(sl.items[i]);
     }
-    free(sl->items);
-    sl->items = 0;
-    sl->len = 0;
-    sl->cap = 0;
+    free(sl.items);
 }
 void StringListAppend(StringList *sl, String str) {
     assert(sl->len <= sl->cap);
@@ -181,11 +207,8 @@ Buffer BufferNew(u32 cap) {
     buf.cap = cap;
     return buf;
 }
-void BufferFree(Buffer *buf) {
-    free(buf->bs);
-    buf->bs = 0;
-    buf->len = 0;
-    buf->cap = 0;
+void BufferFree(Buffer buf) {
+    free(buf.bs);
 }
 void BufferClear(Buffer *buf) {
     memset(buf->bs, 0, buf->len);
@@ -237,16 +260,13 @@ Map MapNew(u16 cap) {
     m.isfreevals = 0;
     return m;
 }
-void MapFree(Map *m) {
-    for (int i=0; i < m->len; i+=2) {
-        free(m->items[i]);
-        if (m->isfreevals)
-            free(m->items[i+1]);
+void MapFree(Map m) {
+    for (int i=0; i < m.len; i+=2) {
+        free(m.items[i]);
+        if (m.isfreevals)
+            free(m.items[i+1]);
     }
-    free(m->items);
-    m->items = 0;
-    m->len = 0;
-    m->cap = 0;
+    free(m.items);
 }
 void MapClear(Map *m) {
     for (int i=0; i < m->len; i+=2) {
@@ -254,7 +274,7 @@ void MapClear(Map *m) {
         if (m->isfreevals)
             free(m->items[i+1]);
     }
-    memset(m->items, 0, sizeof(void *)*m->cap);
+    memset(m->items, 0, sizeof(void *)*m->len);
     m->len = 0;
 }
 void MapSet(Map *m, char *k, void *v) {
