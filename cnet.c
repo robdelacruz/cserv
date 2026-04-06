@@ -9,12 +9,12 @@
 #include "clib.h"
 #include "cnet.h"
 
-void NetInit(NetSelectCtx *ctx, int serverfd) {
-    FD_ZERO(&ctx->readfds);
-    FD_ZERO(&ctx->writefds);
-    FD_SET(serverfd, &ctx->readfds);
-    ctx->maxfd = serverfd;
-    ctx->nodes = NetNodeArrayNew(255);
+void NetInit(SelectCtx *selectctx, int serverfd) {
+    FD_ZERO(&selectctx->readfds);
+    FD_ZERO(&selectctx->writefds);
+    FD_SET(serverfd, &selectctx->readfds);
+    selectctx->maxfd = serverfd;
+    selectctx->hostctxs = HostCtxArrayNew(255);
 }
 
 int OpenListenSocket(char *host, char *port, int backlog, struct sockaddr *sa) {
@@ -166,15 +166,15 @@ int NetSend(int fd, Buffer *buf) {
     return 1;
 }
 
-int NetSend2(int fd, Buffer *buf, NetSelectCtx *ctx) {
+int NetSend2(int fd, Buffer *buf, SelectCtx *selectctx) {
     int z = NetSend(fd, buf);
     // Can also use  if (buf.len == 0)
     if (z == 0) {
-        FD_CLR(fd, &ctx->writefds);
+        FD_CLR(fd, &selectctx->writefds);
     } else if (z == 1) {
-        FD_SET(fd, &ctx->writefds);
-        if (fd > ctx->maxfd)
-            ctx->maxfd = fd;
+        FD_SET(fd, &selectctx->writefds);
+        if (fd > selectctx->maxfd)
+            selectctx->maxfd = fd;
     }
     return z;
 }
@@ -328,80 +328,80 @@ void NetUnpack(char *bs, int bslen, char *fmt, ...) {
     va_end(args);
 }
 
-NetNode NetNodeNew(int fd) {
-    NetNode n;
-    n.fd = fd;
-    n.seq = 0;
-    n.readbuf = BufferNew(4096);
-    n.writebuf = BufferNew(4096);
-    n.msglen = 0;
-    n.shut_rd = 0;
-    n.shut_wr = 0;
-    n.alias = StringNew("");
-    return n;
+HostCtx HostCtxNew(int fd) {
+    HostCtx hostctx;
+    hostctx.fd = fd;
+    hostctx.seq = 0;
+    hostctx.readbuf = BufferNew(4096);
+    hostctx.writebuf = BufferNew(4096);
+    hostctx.msglen = 0;
+    hostctx.shut_rd = 0;
+    hostctx.shut_wr = 0;
+    hostctx.alias = StringNew("");
+    return hostctx;
 }
-void NetNodeFree(NetNode *n) {
-    n->fd = 0;
-    BufferFree(n->readbuf);
-    BufferFree(n->writebuf);
-    StringFree(n->alias);
+void HostCtxFree(HostCtx *hostctx) {
+    hostctx->fd = 0;
+    BufferFree(hostctx->readbuf);
+    BufferFree(hostctx->writebuf);
+    StringFree(hostctx->alias);
 }
 
-NetNodeArray NetNodeArrayNew(u16 cap) {
-    NetNodeArray a;
+HostCtxArray HostCtxArrayNew(u16 cap) {
+    HostCtxArray a;
     if (cap == 0)
         cap = 32;
-    a.items = (NetNode *) malloc(sizeof(NetNode)*cap);
-    memset(a.items, 0, sizeof(NetNode)*cap);
+    a.items = (HostCtx *) malloc(sizeof(HostCtx)*cap);
+    memset(a.items, 0, sizeof(HostCtx)*cap);
     a.len = 0;
     a.cap = cap;
     return a;
 }
-void NetNodeArrayFree(NetNodeArray *a) {
+void HostCtxArrayFree(HostCtxArray *a) {
     for (int i=0; i < a->len; i++)
-        NetNodeFree(&a->items[i]);
+        HostCtxFree(&a->items[i]);
     free(a->items);
     a->items = 0;
     a->len = 0;
 }
-void NetNodeArrayClear(NetNodeArray *a) {
-    memset(a->items, 0, sizeof(NetNode)*a->len);
+void HostCtxArrayClear(HostCtxArray *a) {
+    memset(a->items, 0, sizeof(HostCtx)*a->len);
     a->len = 0;
 }
-void NetNodeArrayAppend(NetNodeArray *a, NetNode n) {
+void HostCtxArrayAppend(HostCtxArray *a, HostCtx hostctx) {
     assert(a->len <= a->cap);
 
     // Double the capacity if more space needed.
     if (a->len == a->cap) {
-        a->items = realloc(a->items, sizeof(n)*a->cap * 2);
-        memset(a->items + sizeof(n)*a->cap, 0, sizeof(n)*a->cap);
+        a->items = realloc(a->items, sizeof(hostctx)*a->cap * 2);
+        memset(a->items + sizeof(hostctx)*a->cap, 0, sizeof(hostctx)*a->cap);
         a->cap *= 2;
     }
     assert(a->len < a->cap);
 
-    a->items[a->len] = n;
+    a->items[a->len] = hostctx;
     a->len++;
 }
-void NetNodeArrayRemove(NetNodeArray *a, int fd) {
+void HostCtxArrayRemove(HostCtxArray *a, int fd) {
     for (int i=0; i < a->len; i++) {
         if (a->items[i].fd == fd) {
-            NetNodeFree(&a->items[i]);
+            HostCtxFree(&a->items[i]);
             // Move last index to the delete index.
             if (a->len > 1)
                 a->items[i] = a->items[a->len-1];
-            memset(&a->items[a->len-1], 0, sizeof(NetNode));
+            memset(&a->items[a->len-1], 0, sizeof(HostCtx));
             a->len--;
         }
     }
 }
-NetNode *NetNodeArrayFind(NetNodeArray a, int fd) {
+HostCtx *HostCtxArrayFind(HostCtxArray a, int fd) {
     for (int i=0; i < a.len; i++) {
         if (a.items[i].fd == fd)
             return &a.items[i];
     }
     return NULL;
 }
-NetNode *NetNodeArrayFindAlias(NetNodeArray a, char *alias) {
+HostCtx *HostCtxArrayFindAlias(HostCtxArray a, char *alias) {
     for (int i=0; i < a.len; i++) {
         if (StringEquals(a.items[i].alias, alias))
             return &a.items[i];

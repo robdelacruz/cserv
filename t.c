@@ -21,22 +21,15 @@
 
 ServerData serverdata;
 
-void print_clients(NetSelectCtx ctx) {
-    printf("Clients: ");
-    for (int i=0; i < ctx.nodes.len; i++)
-        printf("%d ", ctx.nodes.items[i].fd);
-    printf("\n");
-}
-
 void sigint(int sig) {
     printf("\nTerminating Server.\n");
     exit(0);
 }
 
-void client_connected(NetSelectCtx *ctx, NetNode *client) {
-    fprintf(stderr, "Connected to client %d\n", client->fd);
+void on_host_connected(SelectCtx *ctx, HostCtx *hostctx) {
+    fprintf(stderr, "Connected to client %d\n", hostctx->fd);
 }
-void client_sent_msg(NetSelectCtx *ctx, NetNode *client, char *msgbytes, u16 len) {
+void on_host_recv_msg(SelectCtx *ctx, HostCtx *hostctx, char *msgbytes, u16 len) {
     int z;
     Msg msg;
     MsgUnpack(&msg, msgbytes, len);
@@ -49,18 +42,18 @@ void client_sent_msg(NetSelectCtx *ctx, NetNode *client, char *msgbytes, u16 len
         if (StringEquals(p->command, "list users")) {
             // Return aliases response
             AliasesMsg resp_msg = {ALIASESMSG, StringNew("admin;robtwister;user1")};
-            MsgPack(&resp_msg, &client->writebuf);
+            MsgPack(&resp_msg, &hostctx->writebuf);
             MsgFree(&resp_msg);
-            NetSend2(client->fd, &client->writebuf, ctx);
+            NetSend2(hostctx->fd, &hostctx->writebuf, ctx);
         }
     } else if (msgno == REGISTERMSG) {
         RegisterMsg *p = (RegisterMsg *) &msg;
         int z = RegisterUser(&serverdata, p->alias.bs, p->pwd.bs);
         // Return status response
         StatusMsg resp_msg = {STATUSMSG, z, StringNew(server_strerror(z))};
-        MsgPack(&resp_msg, &client->writebuf);
+        MsgPack(&resp_msg, &hostctx->writebuf);
         MsgFree(&resp_msg);
-        NetSend2(client->fd, &client->writebuf, ctx);
+        NetSend2(hostctx->fd, &hostctx->writebuf, ctx);
         if (z != 0)
             ServerDataSave(serverdata);
     }
@@ -68,8 +61,8 @@ void client_sent_msg(NetSelectCtx *ctx, NetNode *client, char *msgbytes, u16 len
     MsgPrint(&msg);
     MsgFree(&msg);
 }
-void client_end_transmission(NetSelectCtx *ctx, NetNode *client) {
-    fprintf(stderr, "Client %d end transmission\n", client->fd);
+void on_host_eof(SelectCtx *ctx, HostCtx *hostctx) {
+    fprintf(stderr, "Client %d end transmission\n", hostctx->fd);
 }
 
 
@@ -98,15 +91,15 @@ int main(int argc, char *argv[]) {
     printf("Listening on %.*s port %s...\n", ipaddr.len, ipaddr.bs, port);
     StringFree(ipaddr);
 
-    NetSelectCtx ctx;
-    NetInit(&ctx, s0);
+    SelectCtx selectctx;
+    NetInit(&selectctx, s0);
 
     fd_set tmp_readfds, tmp_writefds;
     while (1) {
-        tmp_readfds = ctx.readfds;
-        tmp_writefds = ctx.writefds;
+        tmp_readfds = selectctx.readfds;
+        tmp_writefds = selectctx.writefds;
         //fprintf(stderr, "select()...\n");
-        z = select(ctx.maxfd+1, &tmp_readfds, &tmp_writefds, NULL, NULL);
+        z = select(selectctx.maxfd+1, &tmp_readfds, &tmp_writefds, NULL, NULL);
         if (z == 0) // timeout
             continue;
         if (z == -1 && errno == EINTR)
@@ -116,7 +109,7 @@ int main(int argc, char *argv[]) {
             break;
         }
 
-        for (int i=0; i <= ctx.maxfd; i++) {
+        for (int i=0; i <= selectctx.maxfd; i++) {
             if (FD_ISSET(i, &tmp_readfds)) {
                 // New client connection, ready to receive data from client.
                 if (i == s0) {
@@ -127,39 +120,37 @@ int main(int argc, char *argv[]) {
                         fprintf(stderr, "accept(): %s\n", strerror(errno));
                         continue;
                     }
-                    FD_SET(clientfd, &ctx.readfds);
-                    if (clientfd > ctx.maxfd)
-                        ctx.maxfd = clientfd;
+                    FD_SET(clientfd, &selectctx.readfds);
+                    if (clientfd > selectctx.maxfd)
+                        selectctx.maxfd = clientfd;
 
-                    NetNode client = NetNodeNew(clientfd);
-                    NetNodeArrayAppend(&ctx.nodes, client);
-                    client_connected(&ctx, &client);
+                    HostCtx hostctx = HostCtxNew(clientfd);
+                    HostCtxArrayAppend(&selectctx.hostctxs, hostctx);
+                    on_host_connected(&selectctx, &hostctx);
                 } else {
                     int clientfd = i;
 
-                    NetNode *client = NetNodeArrayFind(ctx.nodes, clientfd);
-                    if (client == NULL) {
+                    HostCtx *hostctx = HostCtxArrayFind(selectctx.hostctxs, clientfd);
+                    if (hostctx == NULL) {
                         fprintf(stderr, "Can't find client buffer %d\n", clientfd);
                         continue;
                     }
 
                     int read_eof = 0;
-                    if (NetRecv(clientfd, &client->readbuf) == 0)
+                    if (NetRecv(clientfd, &hostctx->readbuf) == 0)
                         read_eof = 1;
 
-                    // Each message is a sequence of bytes.
-                    // To send a message, first send a 16bit value containing the size of the message (msglen)
-                    // followed by the stream of msglen message bytes.
-                    // To terminate the stream, send a 0 msglen value.
+                    // Each message is a 16bit msglen value followed by msglen sequence of bytes.
+                    // A msglen of 0 means no more bytes remaining in the stream.
 
-                    Buffer *readbuf = &client->readbuf;
+                    Buffer *readbuf = &hostctx->readbuf;
                     while (1) {
-                        if (client->msglen == 0) {
+                        if (hostctx->msglen == 0) {
                             // Read block length
                             if (readbuf->len >= sizeof(u16)) {
                                 u16 *bs = (u16 *) readbuf->bs;
-                                client->msglen = ntohs(*bs);
-                                if (client->msglen == 0) {
+                                hostctx->msglen = ntohs(*bs);
+                                if (hostctx->msglen == 0) {
                                     read_eof = 1;
                                     break;
                                 }
@@ -169,25 +160,25 @@ int main(int argc, char *argv[]) {
                             break;
                         } else {
                             // Read block body (msglen bytes)
-                            if (readbuf->len >= client->msglen) {
-                                client_sent_msg(&ctx, client, readbuf->bs, client->msglen);
-                                BufferShift(readbuf, client->msglen);
-                                client->msglen = 0;
+                            if (readbuf->len >= hostctx->msglen) {
+                                on_host_recv_msg(&selectctx, hostctx, readbuf->bs, hostctx->msglen);
+                                BufferShift(readbuf, hostctx->msglen);
+                                hostctx->msglen = 0;
                                 continue;
                             }
                             break;
                         }
                     }
                     if (read_eof) {
-                        client_end_transmission(&ctx, client);
-                        FD_CLR(clientfd, &ctx.readfds);
+                        on_host_eof(&selectctx, hostctx);
+                        FD_CLR(clientfd, &selectctx.readfds);
                         shutdown(clientfd, SHUT_RD);
-                        client->shut_rd = 1;
+                        hostctx->shut_rd = 1;
 
-                        // Remove client if no remaining reads and writes.
-                        if (client->writebuf.len == 0) {
-                            NetNodeArrayRemove(&ctx.nodes, clientfd);
-                            FD_CLR(clientfd, &ctx.writefds);
+                        // Remove hostctx if no remaining reads and writes.
+                        if (hostctx->writebuf.len == 0) {
+                            HostCtxArrayRemove(&selectctx.hostctxs, clientfd);
+                            FD_CLR(clientfd, &selectctx.writefds);
                             shutdown(clientfd, SHUT_WR);
                             close(clientfd);
                         }
@@ -197,17 +188,17 @@ int main(int argc, char *argv[]) {
             if (FD_ISSET(i, &tmp_writefds)) {
                 int clientfd = i;
 
-                NetNode *client = NetNodeArrayFind(ctx.nodes, clientfd);
-                if (client == NULL) {
+                HostCtx *hostctx = HostCtxArrayFind(selectctx.hostctxs, clientfd);
+                if (hostctx == NULL) {
                     fprintf(stderr, "Can't find client buffer %d\n", clientfd);
                     continue;
                 }
 
-                NetSend2(clientfd, &client->writebuf, &ctx);
+                NetSend2(clientfd, &hostctx->writebuf, &selectctx);
 
-                // Remove client if no remaining reads and writes.
-                if (client->writebuf.len == 0 && client->shut_rd) {
-                    NetNodeArrayRemove(&ctx.nodes, clientfd);
+                // Remove hostctx if no remaining reads and writes.
+                if (hostctx->writebuf.len == 0 && hostctx->shut_rd) {
+                    HostCtxArrayRemove(&selectctx.hostctxs, clientfd);
                     shutdown(clientfd, SHUT_WR);
                     close(clientfd);
                 }

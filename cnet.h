@@ -20,41 +20,42 @@ typedef struct {
     int shut_rd;
     int shut_wr;
     String alias;
-} NetNode;
+} HostCtx;
 
 typedef struct {
-    NetNode *items;
+    HostCtx *items;
     u16 len;
     u16 cap;
-} NetNodeArray;
+} HostCtxArray;
 
 typedef struct {
     fd_set readfds;
     fd_set writefds;
     int maxfd;
-    NetNodeArray nodes;
-} NetSelectCtx;
+    HostCtxArray hostctxs;
+} SelectCtx;
 
-void NetInit(NetSelectCtx *ctx, int serverfd);
+void NetInit(SelectCtx *selectctx, int serverfd);
 
 int OpenListenSocket(char *host, char *port, int backlog, struct sockaddr *sa);
 int OpenConnectSocket(char *host, char *port, int backlog, struct sockaddr *sa);
 void GetTextIPAddress(struct sockaddr *sa, String *dest);
 int NetRecv(int fd, Buffer *buf);
 int NetSend(int fd, Buffer *buf);
-int NetSend2(int fd, Buffer *buf, NetSelectCtx *ctx);
+int NetSend2(int fd, Buffer *buf, SelectCtx *selectctx);
 int NetPack(Buffer *buf, char *fmt, ...);
 int NetPackLen(Buffer *buf, char *fmt, ...);
 void NetUnpack(char *bs, int bslen, char *fmt, ...);
 
-NetNode NetNodeNew(int fd);
-void NetNodeFree(NetNode *n);
-NetNodeArray NetNodeArrayNew(u16 cap);
-void NetNodeArrayFree(NetNodeArray *a);
-void NetNodeArrayClear(NetNodeArray *a);
-void NetNodeArrayAppend(NetNodeArray *a, NetNode n);
-void NetNodeArrayRemove(NetNodeArray *a, int fd);
-NetNode *NetNodeArrayFind(NetNodeArray a, int fd);
-NetNode *NetNodeArrayFindAlias(NetNodeArray a, char *alias);
+HostCtx HostCtxNew(int fd);
+void HostCtxFree(HostCtx *hostctx);
+
+HostCtxArray HostCtxArrayNew(u16 cap);
+void HostCtxArrayFree(HostCtxArray *a);
+void HostCtxArrayClear(HostCtxArray *a);
+void HostCtxArrayAppend(HostCtxArray *a, HostCtx hostctx);
+void HostCtxArrayRemove(HostCtxArray *a, int fd);
+HostCtx *HostCtxArrayFind(HostCtxArray a, int fd);
+HostCtx *HostCtxArrayFindAlias(HostCtxArray a, char *alias);
 
 #endif
