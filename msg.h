@@ -12,6 +12,15 @@
 
 #define MSGNO(bs) (*((u8 *)bs))
 
+// This is just used as a placeholder struct to
+// reserve enough bytes to fit the largest msg.
+// Msg should be type cast to the appropriate msg
+// struct before it's used.
+typedef struct {
+    u8 msgno;
+    char _tmp[255];
+} Msg;
+
 typedef struct {
     u8 msgno;
     u8 statusno;
@@ -40,9 +49,9 @@ typedef struct {
     String aliases;
 } AliasesMsg;
 
-void print_message(void *msg);
-void *unpack_message(char *msgbytes, u16 len);
-void pack_message(void *msg, Buffer *buf);
-void free_message(void *msg);
+void MsgFree(void *msg);
+void MsgPrint(void *msg);
+void MsgPack(void *msg, Buffer *buf);
+void MsgUnpack(Msg *msg, char *msgbytes, u16 len);
 
 #endif

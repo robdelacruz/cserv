@@ -24,14 +24,13 @@ void sigint(int sig) {
 int clientstate = 0;
 
 void server_sent_msg(NetSelectCtx *ctx, NetNode *server, char *msgbytes, u16 len) {
-    void *msg = unpack_message(msgbytes, len);
-    if (msg == NULL)
-        return;
-
+    Msg msg;
+    MsgUnpack(&msg, msgbytes, len);
     u8 msgno = MSGNO(msgbytes);
-    print_message(msg);
-
-    free_message(msg);
+    if (msgno == 0)
+        return;
+    MsgPrint(&msg);
+    MsgFree(&msg);
 }
 void server_end_transmission(NetSelectCtx *ctx, NetNode *server) {
     fprintf(stderr, "Server %d end transmission\n", server->fd);
@@ -65,7 +64,7 @@ int main(int argc, char *argv[]) {
 
     // Try sending some message to server
     u8 msgno = REGISTERMSG;
-    NetPackLen(&server.writebuf, "%b%s%s", msgno, "abcuser2", "abc123");
+    NetPackLen(&server.writebuf, "%b%s%s", msgno, "abcuser3", "abc123");
     z = NetSend2(serverfd, &server.writebuf, &ctx);
 
     fd_set tmp_readfds, tmp_writefds;

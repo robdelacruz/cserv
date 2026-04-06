@@ -4,9 +4,32 @@
 #include "clib.h"
 #include "msg.h"
 
-void print_message(void *msg) {
+void MsgFree(void *msg) {
     u8 msgno = MSGNO(msg);
+    if (msgno == STATUSMSG) {
+        StatusMsg *p = msg;
+        StringFree(p->statustext);
+    } else if (msgno == REGISTERMSG) {
+        RegisterMsg *p = msg;
+        StringFree(p->alias);
+        StringFree(p->pwd);
+    } else if (msgno == LOGINMSG) {
+        LoginMsg *p = msg;
+        StringFree(p->alias);
+        StringFree(p->pwd);
+    } else if (msgno == COMMANDMSG) {
+        CommandMsg *p = msg;
+        StringFree(p->command);
+    } else if (msgno == ALIASESMSG) {
+        AliasesMsg *p = msg;
+        StringFree(p->aliases);
+    } else {
+        fprintf(stderr, "MsgFree(): Unrecognized msgno %d\n", msgno);
+    }
+}
 
+void MsgPrint(void *msg) {
+    u8 msgno = MSGNO(msg);
     if (msgno == STATUSMSG) {
         StatusMsg *p = msg;
         printf("** Status statusno: %d statustext: '%.*s' **\n", p->statusno, p->statustext.len, p->statustext.bs);
@@ -34,42 +57,7 @@ void print_message(void *msg) {
     }
 }
 
-void *unpack_message(char *msgbytes, u16 len) {
-    u8 msgno = MSGNO(msgbytes);
-    if (msgno == STATUSMSG) {
-        StatusMsg *p = (StatusMsg *) malloc(sizeof(StatusMsg));
-        p->statustext = StringNew("");
-        NetUnpack(msgbytes, len, "%b%b%s", &p->msgno, &p->statusno, &p->statustext);
-        return p;
-    } else if (msgno == REGISTERMSG) {
-        RegisterMsg *p = (RegisterMsg *) malloc(sizeof(RegisterMsg));
-        p->alias = StringNew("");
-        p->pwd = StringNew("");
-        NetUnpack(msgbytes, len, "%b%s%s", &p->msgno, &p->alias, &p->pwd);
-        return p;
-    } else if (msgno == LOGINMSG) {
-        LoginMsg *p = (LoginMsg *) malloc(sizeof(LoginMsg));
-        p->alias = StringNew("");
-        p->pwd = StringNew("");
-        NetUnpack(msgbytes, len, "%b%s%s", &p->msgno, &p->alias, &p->pwd);
-        return p;
-    } else if (msgno == COMMANDMSG) {
-        CommandMsg *p = (CommandMsg *) malloc(sizeof(CommandMsg));
-        p->command = StringNew("");
-        NetUnpack(msgbytes, len, "%b%s", &p->msgno, &p->command);
-        return p;
-    } else if (msgno == ALIASESMSG) {
-        AliasesMsg *p = (AliasesMsg *) malloc(sizeof(AliasesMsg));
-        p->aliases = StringNew("");
-        NetUnpack(msgbytes, len, "%b%s", &p->msgno, &p->aliases);
-        return p;
-    }
-
-    fprintf(stderr, "unpack_message(): Unrecognized msgno %d\n", msgno);
-    return NULL;
-}
-
-void pack_message(void *msg, Buffer *buf) {
+void MsgPack(void *msg, Buffer *buf) {
     u8 msgno = MSGNO(msg);
     if (msgno == STATUSMSG) {
         StatusMsg *p = msg;
@@ -91,34 +79,33 @@ void pack_message(void *msg, Buffer *buf) {
     }
 }
 
-void free_message(void *msg) {
-    u8 msgno = MSGNO(msg);
-
+void MsgUnpack(Msg *msg, char *msgbytes, u16 len) {
+    u8 msgno = MSGNO(msgbytes);
     if (msgno == STATUSMSG) {
-        StatusMsg *p = msg;
-        StringFree(p->statustext);
-        free(p);
+        StatusMsg *p = (StatusMsg *) msg;
+        p->statustext = StringNew("");
+        NetUnpack(msgbytes, len, "%b%b%s", &p->msgno, &p->statusno, &p->statustext);
     } else if (msgno == REGISTERMSG) {
-        RegisterMsg *p = msg;
-        StringFree(p->alias);
-        StringFree(p->pwd);
-        free(p);
+        RegisterMsg *p = (RegisterMsg *) msg;
+        p->alias = StringNew("");
+        p->pwd = StringNew("");
+        NetUnpack(msgbytes, len, "%b%s%s", &p->msgno, &p->alias, &p->pwd);
     } else if (msgno == LOGINMSG) {
-        LoginMsg *p = msg;
-        StringFree(p->alias);
-        StringFree(p->pwd);
-        free(p);
+        LoginMsg *p = (LoginMsg *) msg;
+        p->alias = StringNew("");
+        p->pwd = StringNew("");
+        NetUnpack(msgbytes, len, "%b%s%s", &p->msgno, &p->alias, &p->pwd);
     } else if (msgno == COMMANDMSG) {
-        CommandMsg *p = msg;
-        StringFree(p->command);
-        free(p);
+        CommandMsg *p = (CommandMsg *) msg;
+        p->command = StringNew("");
+        NetUnpack(msgbytes, len, "%b%s", &p->msgno, &p->command);
     } else if (msgno == ALIASESMSG) {
-        AliasesMsg *p = msg;
-        StringFree(p->aliases);
-        free(p);
+        AliasesMsg *p = (AliasesMsg *) msg;
+        p->aliases = StringNew("");
+        NetUnpack(msgbytes, len, "%b%s", &p->msgno, &p->aliases);
     } else {
-        fprintf(stderr, "free_message(): Unrecognized msgno %d\n", msgno);
+        msg->msgno = 0;
+        fprintf(stderr, "unpack_message(): Unrecognized msgno %d\n", msgno);
     }
 }
-
 

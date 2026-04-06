@@ -38,43 +38,35 @@ void client_connected(NetSelectCtx *ctx, NetNode *client) {
 }
 void client_sent_msg(NetSelectCtx *ctx, NetNode *client, char *msgbytes, u16 len) {
     int z;
-    void *msg = unpack_message(msgbytes, len);
-    if (msg == NULL)
+    Msg msg;
+    MsgUnpack(&msg, msgbytes, len);
+    u8 msgno = MSGNO(&msg);
+    if (msgno == 0) {
         return;
-
-    u8 msgno = MSGNO(msg);
+    }
     if (msgno == COMMANDMSG) {
-        CommandMsg *p = msg;
+        CommandMsg *p = (CommandMsg *) &msg;
         if (StringEquals(p->command, "list users")) {
-            AliasesMsg msg = {ALIASESMSG, StringNew("admin;robtwister;user1")};
-            pack_message(&msg, &client->writebuf);
-            StringFree(msg.aliases);
-//            NetPackLen(&client->writebuf, "%b%s", ALIASESMSG, "admin;robtwister;user1");
+            // Return aliases response
+            AliasesMsg resp_msg = {ALIASESMSG, StringNew("admin;robtwister;user1")};
+            MsgPack(&resp_msg, &client->writebuf);
+            MsgFree(&resp_msg);
             NetSend2(client->fd, &client->writebuf, ctx);
         }
     } else if (msgno == REGISTERMSG) {
-        RegisterMsg *p = msg;
+        RegisterMsg *p = (RegisterMsg *) &msg;
         int z = RegisterUser(&serverdata, p->alias.bs, p->pwd.bs);
-        if (z != 0) {
-            StatusMsg msg = {STATUSMSG, z, StringNew(server_strerror(z))};
-            pack_message(&msg, &client->writebuf);
-            StringFree(msg.statustext);
-            // Return status error msg
-//            NetPackLen(&client->writebuf, "%b%b%s", STATUSMSG, z, server_strerror(z));
-            NetSend2(client->fd, &client->writebuf, ctx);
-        } else {
-            StatusMsg msg = {STATUSMSG, z, StringNew(server_strerror(z))};
-            pack_message(&msg, &client->writebuf);
-            StringFree(msg.statustext);
-            // Return status ok msg
-//            NetPackLen(&client->writebuf, "%b%b%s", STATUSMSG, 0, server_strerror(0));
-            NetSend2(client->fd, &client->writebuf, ctx);
+        // Return status response
+        StatusMsg resp_msg = {STATUSMSG, z, StringNew(server_strerror(z))};
+        MsgPack(&resp_msg, &client->writebuf);
+        MsgFree(&resp_msg);
+        NetSend2(client->fd, &client->writebuf, ctx);
+        if (z != 0)
             ServerDataSave(serverdata);
-        }
     }
 
-    print_message(msg);
-    free_message(msg);
+    MsgPrint(&msg);
+    MsgFree(&msg);
 }
 void client_end_transmission(NetSelectCtx *ctx, NetNode *client) {
     fprintf(stderr, "Client %d end transmission\n", client->fd);
