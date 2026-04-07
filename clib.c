@@ -232,7 +232,7 @@ void BufferAppend(Buffer *buf, char *bs, u32 bslen) {
     memcpy(buf->bs + buf->len, bs, bslen);
     buf->len += bslen;
 }
-void BufferAppendChar(Buffer *buf, unsigned char c) {
+void BufferAppendChar(Buffer *buf, char c) {
     BufferAppend(buf, &c, 1);
 }
 // Remove first n bytes of buffer
@@ -309,7 +309,7 @@ void *MapGet(Map m, char *k) {
     }
     return NULL;
 }
-void *MapRemove(Map *m, char *k) {
+void MapRemove(Map *m, char *k) {
     for (int i=0; i < m->len; i+=2) {
         if (strcmp(m->items[i], k) == 0) {
             free(m->items[i]);
