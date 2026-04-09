@@ -79,10 +79,12 @@ int main(int argc, char *argv[]) {
 }
 
 gboolean on_server_read(GIOChannel *ch, GIOCondition iocond, void *data) {
+    printf("on_server_read()\n");
     HostCtx *hostctx = data;
     return TRUE;
 }
 gboolean on_server_write(GIOChannel *ch, GIOCondition iocond, void *data) {
+    printf("on_server_write()\n");
     HostCtx *hostctx = data;
     int serverfd = g_io_channel_unix_get_fd(ch);
 
