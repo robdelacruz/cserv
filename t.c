@@ -48,7 +48,7 @@ void on_host_recv_msg(SelectCtx *ctx, HostCtx *hostctx, char *msgbytes, u16 len)
         }
     } else if (msgno == REGISTERMSG) {
         RegisterMsg *p = (RegisterMsg *) &msg;
-        int z = RegisterUser(&serverdata, p->alias.bs, p->pwd.bs);
+        z = RegisterUser(&serverdata, p->alias.bs, p->pwd.bs);
         // Return status response
         StatusMsg resp_msg = {STATUSMSG, z, StringNew(server_strerror(z))};
         MsgPack(&resp_msg, &hostctx->writebuf);

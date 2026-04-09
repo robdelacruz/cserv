@@ -13,6 +13,49 @@ void panic(char *s) {
     abort();
 }
 
+Arena ArenaNew(u32 cap) {
+    Arena a;
+    if (cap == 0)
+        cap = 1024;
+    a.bs = malloc(cap);
+    a.pos = 0;
+    a.cap = cap;
+    return a;
+}
+void ArenaFree(Arena a) {
+    free(a.bs);
+}
+void ArenaReset(Arena *a) {
+    a->pos = 0;
+}
+void *ArenaAlloc(Arena *a, u32 size) {
+    if (a->pos + size > a->cap) {
+        fprintf(stderr, "ArenaAlloc() size: %ld not enough memory\n", size);
+        abort();
+    }
+    u8 *p = a->bs + a->pos;
+    a->pos += size;
+    return p;
+}
+void *ArenaPushBytes(Arena *a, void *src, u32 size) {
+    if (a->pos + size > a->cap) {
+        fprintf(stderr, "ArenaAlloc() size: %ld not enough memory\n", size);
+        abort();
+    }
+    u8 *p = a->bs + a->pos;
+    memcpy(p, src, size);
+    a->pos += size;
+    return p;
+}
+void ArenaGet(Arena *a, void *dest, u32 offset, u32 size) {
+    if (offset+size > a->pos) {
+        fprintf(stderr, "ArenaGet() offset: %ld size: %ld pos: %ld out of bounds\n", offset, size, a->pos);
+        memset(dest, 0, size);
+        return;
+    }
+    memcpy(dest, a->bs+offset, size);
+}
+
 String StringNew(char *s) {
     String str;
     str.len = strlen(s);

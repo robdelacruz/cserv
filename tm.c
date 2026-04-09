@@ -18,14 +18,6 @@
 #include "cnet.h"
 #include "msg.h"
 
-typedef struct {
-    int serverfd;
-    GIOChannel *serverch;
-    HostCtx hostctx;
-    GtkWidget *txtusername;
-    GtkWidget *txtpassword;
-} UICtx;
-
 GtkWidget *create_label1(char *caption) {
     GtkWidget *lbl = gtk_label_new(caption);
     gtk_widget_set_halign(lbl, GTK_ALIGN_START);
@@ -48,8 +40,11 @@ gboolean idlefunc(gpointer userdata) {
     return TRUE;
 }
 
-void create_login_ui(UICtx *uictx);
-gboolean on_serverfd_event(GIOChannel *ch, GIOCondition iocond, gpointer data);
+gboolean on_server_read(GIOChannel *ch, GIOCondition iocond, void *data);
+gboolean on_server_write(GIOChannel *ch, GIOCondition iocond, void *data);
+
+void create_login_ui(HostCtx *hostctx, GIOChannel *serverch);
+void login_clicked(GtkWidget *w, void **data);
 
 int main(int argc, char *argv[]) {
     gtk_init(&argc, &argv);
@@ -73,41 +68,35 @@ int main(int argc, char *argv[]) {
     printf("Connected to %.*s port %s...\n", ipaddr.len, ipaddr.bs, serverport);
     StringFree(ipaddr);
 
-    GIOChannel *serverch = g_io_channel_unix_new(serverfd);
-    g_io_add_watch(serverch, G_IO_IN|G_IO_ERR|G_IO_HUP, on_serverfd_event, NULL);
-
     HostCtx hostctx = HostCtxNew(serverfd);
 
-    UICtx uictx;
-    uictx.serverfd = serverfd;
-    uictx.serverch = serverch;
-    uictx.hostctx = hostctx;
+    GIOChannel *serverch = g_io_channel_unix_new(serverfd);
+    g_io_add_watch(serverch, G_IO_IN, on_server_read, &hostctx);
 
-    create_login_ui(&uictx);
+    create_login_ui(&hostctx, serverch);
     gtk_main();
     return 0;
 }
 
-gboolean on_serverfd_event(GIOChannel *ch, GIOCondition iocond, gpointer data) {
-    int fd = g_io_channel_unix_get_fd(ch);
-    if (iocond == G_IO_IN)
-        printf("server fd %d: data available for read\n", fd);
-    else if (iocond == G_IO_OUT)
-        printf("server fd %d: data can be sent\n", fd);
-    else if (iocond == G_IO_HUP)
-        printf("server fd %d: hung up\n", fd);
-    else if (iocond == G_IO_ERR)
-        printf("server fd %d: error\n", fd);
+gboolean on_server_read(GIOChannel *ch, GIOCondition iocond, void *data) {
+    HostCtx *hostctx = data;
     return TRUE;
 }
+gboolean on_server_write(GIOChannel *ch, GIOCondition iocond, void *data) {
+    HostCtx *hostctx = data;
+    int serverfd = g_io_channel_unix_get_fd(ch);
 
-void login_clicked(GtkWidget *w, UICtx *uictx) {
-    printf("login_clicked() serverfd: %d\n", uictx->serverfd);
-    printf("txtusername: '%s'\n", gtk_entry_get_text(GTK_ENTRY(uictx->txtusername)));
-    printf("txtpassword: '%s'\n", gtk_entry_get_text(GTK_ENTRY(uictx->txtpassword)));
+    int z = NetSend(serverfd, &hostctx->writebuf);
+    // If not able to send all the bytes, keep this event handler alive 
+    // to resume sending bytes.
+    if (z != 0)
+        return TRUE;
+
+    // All bytes sent, remove this event handler.
+    return FALSE;
 }
 
-void create_login_ui(UICtx *uictx) {
+void create_login_ui(HostCtx *hostctx, GIOChannel *serverch) {
     GtkWidget *w = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_title(GTK_WINDOW(w), "Messenger");
     gtk_window_set_default_size(GTK_WINDOW(w), 230,300);
@@ -145,10 +134,31 @@ void create_login_ui(UICtx *uictx) {
     g_signal_connect(G_OBJECT(quitmi), "activate", G_CALLBACK(gtk_main_quit), NULL);
     g_signal_connect(w, "destroy", G_CALLBACK(gtk_main_quit), NULL);
 
-    uictx->txtusername = txtusername;
-    uictx->txtpassword = txtpassword;
-    g_signal_connect(G_OBJECT(loginbtn), "clicked", G_CALLBACK(login_clicked), uictx);
+    static void *data[4];
+    data[0] = serverch;
+    data[1] = hostctx;
+    data[2] = txtusername;
+    data[3] = txtpassword;
+    g_signal_connect(G_OBJECT(loginbtn), "clicked", G_CALLBACK(login_clicked), data);
 
     gtk_widget_show_all(w);
 }
+void login_clicked(GtkWidget *w, void **data) {
+    GIOChannel *serverch = data[0];
+    HostCtx *hostctx = data[1];
+    GtkEntry *txtusername = data[2];
+    GtkEntry *txtpassword = data[3];
+    printf("login_clicked() serverfd: %d\n", hostctx->fd);
+
+    char *alias = (char *) gtk_entry_get_text(GTK_ENTRY(txtusername));
+    char *password = (char *) gtk_entry_get_text(GTK_ENTRY(txtpassword));
+    LoginMsg loginmsg = {LOGINMSG, StringNew(alias), StringNew(password)};
+    MsgPack(&loginmsg, &hostctx->writebuf);
+    int z = NetSend(hostctx->fd, &hostctx->writebuf);
+    // If not able to send all the bytes, start event handler to resume
+    // sending bytes.
+    if (z != 0)
+        g_io_add_watch(serverch, G_IO_OUT, on_server_write, hostctx);
+}
+
 

@@ -14,6 +14,12 @@ typedef unsigned long u32;
 typedef unsigned long long u64;
 
 typedef struct {
+    u8 *bs;
+    u32 pos;
+    u32 cap;
+} Arena;
+
+typedef struct {
     char *bs;
     u16 len;
 } String;
@@ -39,6 +45,13 @@ typedef struct {
 } Map;
 
 void panic(char *s);
+
+Arena ArenaNew(u32 cap);
+void ArenaFree(Arena a);
+void ArenaReset(Arena *a);
+void *ArenaAlloc(Arena *a, u32 size);
+void *ArenaPushBytes(Arena *a, void *src, u32 size);
+void ArenaGet(Arena *a, void *dest, u32 offset, u32 size);
 
 String StringNew(char *s);
 String StringNewFromBytes(char *bs, int bslen);
