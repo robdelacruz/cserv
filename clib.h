@@ -61,6 +61,7 @@ String StringFormat(const char *fmt, ...);
 void StringAppend(String *str, char *s);
 void StringAssign(String *str, char *s);
 void StringAssignFromBytes(String *str, char *bs, int bslen);
+void StringAssignFormat(String *str, const char *fmt, ...);
 int StringSearch(String str, int startpos, char *searchstr);
 int StringEquals(String str, char *s);
 StringList StringSplit(String str, char *sep);

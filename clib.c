@@ -116,6 +116,19 @@ void StringAssignFromBytes(String *str, char *bs, int bslen) {
     StringFree(*str);
     *str = StringNewFromBytes(bs, bslen);
 }
+void StringAssignFormat(String *str, const char *fmt, ...) {
+    StringFree(*str);
+    va_list args;
+
+    va_start(args, fmt);
+    str->len = vsnprintf(NULL, 0, fmt, args);
+    str->bs = (char *) malloc(str->len+1);
+    va_end(args);
+
+    va_start(args, fmt);
+    vsnprintf(str->bs, str->len+1, fmt, args);
+    va_end(args);
+}
 int StringSearch(String str, int startpos, char *searchstr) {
     int searchstr_len = strlen(searchstr);
     for (int i=startpos; i < str.len; i++) {

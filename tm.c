@@ -18,6 +18,13 @@
 #include "cnet.h"
 #include "msg.h"
 
+typedef struct {
+    GIOChannel *serverch;
+    HostCtx hostctx;
+    char *serverhost;
+    char *serverport;
+} UICtx;
+
 GtkWidget *create_label1(char *caption) {
     GtkWidget *lbl = gtk_label_new(caption);
     gtk_widget_set_halign(lbl, GTK_ALIGN_START);
@@ -35,6 +42,19 @@ void set_widget_margins(GtkWidget *w, int left, int right, int top, int bottom) 
     gtk_widget_set_margin_top(w, top);
     gtk_widget_set_margin_bottom(w, bottom);
 }
+void set_statusbar_message(GtkStatusbar *statusbar, guint ctxid, char *msg) {
+    static guint _ctxid=0;
+    if (_ctxid == 0)
+        _ctxid = gtk_statusbar_get_context_id(statusbar, "status0");
+    if (ctxid == 0)
+        ctxid = _ctxid;
+
+    gtk_statusbar_remove_all(statusbar, ctxid);
+    gtk_statusbar_push(statusbar, ctxid, msg);
+}
+void set_statusbar_message0(GtkStatusbar *statusbar, char *msg) {
+    set_statusbar_message(statusbar, 0, msg);
+}
 
 gboolean idlefunc(gpointer userdata) {
     return TRUE;
@@ -43,37 +63,24 @@ gboolean idlefunc(gpointer userdata) {
 gboolean on_server_read(GIOChannel *ch, GIOCondition iocond, void *data);
 gboolean on_server_write(GIOChannel *ch, GIOCondition iocond, void *data);
 
-void create_login_ui(HostCtx *hostctx, GIOChannel *serverch);
+void create_login_ui();
 void login_clicked(GtkWidget *w, void **data);
+
+UICtx _uictx;
 
 int main(int argc, char *argv[]) {
     gtk_init(&argc, &argv);
 
-    char *serverhost = "localhost";
-    char *serverport = "8000";
+    _uictx.serverch = NULL;
+    _uictx.hostctx = HostCtxNew(0);
+    _uictx.serverhost = "localhost";
+    _uictx.serverport = "8000";
     if (argc > 1)
-        serverhost = argv[1];
+        _uictx.serverhost = argv[1];
     if (argc > 2)
-        serverport = argv[2];
+        _uictx.serverport = argv[2];
 
-    int backlog = 50;
-    struct sockaddr sa;
-    int serverfd = OpenConnectSocket(serverhost, serverport, backlog, &sa);
-    if (serverfd == -1)
-        exit(1);
-    printf("main() serverfd: %d\n", serverfd);
-
-    String ipaddr = StringNew("");
-    GetTextIPAddress(&sa, &ipaddr);
-    printf("Connected to %.*s port %s...\n", ipaddr.len, ipaddr.bs, serverport);
-    StringFree(ipaddr);
-
-    HostCtx hostctx = HostCtxNew(serverfd);
-
-    GIOChannel *serverch = g_io_channel_unix_new(serverfd);
-    g_io_add_watch(serverch, G_IO_IN, on_server_read, &hostctx);
-
-    create_login_ui(&hostctx, serverch);
+    create_login_ui();
     gtk_main();
     return 0;
 }
@@ -98,13 +105,13 @@ gboolean on_server_write(GIOChannel *ch, GIOCondition iocond, void *data) {
     return FALSE;
 }
 
-void create_login_ui(HostCtx *hostctx, GIOChannel *serverch) {
+void create_login_ui() {
     GtkWidget *w = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_title(GTK_WINDOW(w), "Messenger");
     gtk_window_set_default_size(GTK_WINDOW(w), 230,300);
     gtk_window_set_position(GTK_WINDOW(w), GTK_WIN_POS_CENTER);
 
-    // Window menu
+    // Menu and statusbar
     GtkWidget *menubar = gtk_menu_bar_new();
     GtkWidget *filemenu = gtk_menu_new();
     GtkWidget *filemi = gtk_menu_item_new_with_mnemonic("_File");
@@ -112,6 +119,7 @@ void create_login_ui(HostCtx *hostctx, GIOChannel *serverch) {
     gtk_menu_item_set_submenu(GTK_MENU_ITEM(filemi), filemenu);
     gtk_menu_shell_append(GTK_MENU_SHELL(filemenu), quitmi);
     gtk_menu_shell_append(GTK_MENU_SHELL(menubar), filemi);
+    GtkWidget *statusbar = gtk_statusbar_new();
 
     // Login controls
     GtkWidget *lbl1 = create_label1("Username");
@@ -132,25 +140,49 @@ void create_login_ui(HostCtx *hostctx, GIOChannel *serverch) {
     gtk_container_add(GTK_CONTAINER(w), framebox);
     gtk_box_pack_start(GTK_BOX(framebox), menubar, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(framebox), vbox, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(framebox), statusbar, FALSE, FALSE, 0);
 
     g_signal_connect(G_OBJECT(quitmi), "activate", G_CALLBACK(gtk_main_quit), NULL);
     g_signal_connect(w, "destroy", G_CALLBACK(gtk_main_quit), NULL);
 
-    static void *data[4];
-    data[0] = serverch;
-    data[1] = hostctx;
-    data[2] = txtusername;
-    data[3] = txtpassword;
+    static void *data[3];
+    data[0] = txtusername;
+    data[1] = txtpassword;
+    data[2] = statusbar;
     g_signal_connect(G_OBJECT(loginbtn), "clicked", G_CALLBACK(login_clicked), data);
 
     gtk_widget_show_all(w);
 }
 void login_clicked(GtkWidget *w, void **data) {
-    GIOChannel *serverch = data[0];
-    HostCtx *hostctx = data[1];
-    GtkEntry *txtusername = data[2];
-    GtkEntry *txtpassword = data[3];
-    printf("login_clicked() serverfd: %d\n", hostctx->fd);
+    GtkEntry *txtusername = data[0];
+    GtkEntry *txtpassword = data[1];
+    GtkStatusbar *statusbar = data[2];
+    HostCtx *hostctx = &_uictx.hostctx;
+
+    String statusstr = StringFormat("Connecting to %s...", _uictx.serverhost);
+    set_statusbar_message0(statusbar, statusstr.bs);
+
+    int backlog = 50;
+    struct sockaddr sa;
+    int serverfd = OpenConnectSocket(_uictx.serverhost, _uictx.serverport, backlog, &sa);
+    if (serverfd == -1) {
+        StringAssignFormat(&statusstr, "Error connecting to %s", _uictx.serverhost);
+        set_statusbar_message0(statusbar, statusstr.bs);
+        StringFree(statusstr);
+        return;
+    }
+    String ipaddr = StringNew("");
+    GetTextIPAddress(&sa, &ipaddr);
+    StringAssignFormat(&statusstr, "Connected to %.*s\n", ipaddr.len, ipaddr.bs);
+    StringFree(ipaddr);
+    set_statusbar_message0(statusbar, statusstr.bs);
+
+    hostctx->fd = serverfd;
+    _uictx.serverch = g_io_channel_unix_new(serverfd);
+    g_io_add_watch(_uictx.serverch, G_IO_IN, on_server_read, hostctx);
+
+    StringAssignFormat(&statusstr, "Logging in...");
+    set_statusbar_message0(statusbar, statusstr.bs);
 
     char *alias = (char *) gtk_entry_get_text(GTK_ENTRY(txtusername));
     char *password = (char *) gtk_entry_get_text(GTK_ENTRY(txtpassword));
@@ -160,7 +192,9 @@ void login_clicked(GtkWidget *w, void **data) {
     // If not able to send all the bytes, start event handler to resume
     // sending bytes.
     if (z != 0)
-        g_io_add_watch(serverch, G_IO_OUT, on_server_write, hostctx);
+        g_io_add_watch(_uictx.serverch, G_IO_OUT, on_server_write, hostctx);
+
+    StringFree(statusstr);
 }
 
 
