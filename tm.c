@@ -25,6 +25,15 @@ typedef struct {
     char *serverport;
 } UICtx;
 
+typedef struct {
+    GtkWidget *win;
+    GtkWidget *menubar;
+    GtkWidget *txtusername;
+    GtkWidget *txtpassword;
+    GtkWidget *loginbtn;
+    GtkWidget *statusbar;
+} LoginUI;
+
 GtkWidget *create_label1(char *caption) {
     GtkWidget *lbl = gtk_label_new(caption);
     gtk_widget_set_halign(lbl, GTK_ALIGN_START);
@@ -63,8 +72,7 @@ gboolean idlefunc(gpointer userdata) {
 gboolean on_server_read(GIOChannel *ch, GIOCondition iocond, void *data);
 gboolean on_server_write(GIOChannel *ch, GIOCondition iocond, void *data);
 
-void create_login_ui();
-void login_clicked(GtkWidget *w, void **data);
+GtkWidget *create_login_ui();
 
 UICtx _uictx;
 
@@ -80,7 +88,7 @@ int main(int argc, char *argv[]) {
     if (argc > 2)
         _uictx.serverport = argv[2];
 
-    create_login_ui();
+    GtkWidget *loginwin = create_login_ui();
     gtk_main();
     return 0;
 }
@@ -105,7 +113,11 @@ gboolean on_server_write(GIOChannel *ch, GIOCondition iocond, void *data) {
     return FALSE;
 }
 
-void create_login_ui() {
+void login_clicked(GtkWidget *w, LoginUI *loginui);
+void enable_loginui(LoginUI *loginui, gboolean f);
+gboolean on_server_connect(GIOChannel *ch, GIOCondition iocond, void *data);
+
+GtkWidget *create_login_ui() {
     GtkWidget *w = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_title(GTK_WINDOW(w), "Messenger");
     gtk_window_set_default_size(GTK_WINDOW(w), 230,300);
@@ -140,61 +152,119 @@ void create_login_ui() {
     gtk_container_add(GTK_CONTAINER(w), framebox);
     gtk_box_pack_start(GTK_BOX(framebox), menubar, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(framebox), vbox, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(framebox), statusbar, FALSE, FALSE, 0);
+    gtk_box_pack_end(GTK_BOX(framebox), statusbar, FALSE, FALSE, 0);
+
+    static LoginUI loginui;
+    loginui.win = w;
+    loginui.menubar = menubar;
+    loginui.txtusername = txtusername;
+    loginui.txtpassword = txtpassword;
+    loginui.loginbtn = loginbtn;
+    loginui.statusbar = statusbar;
 
     g_signal_connect(G_OBJECT(quitmi), "activate", G_CALLBACK(gtk_main_quit), NULL);
     g_signal_connect(w, "destroy", G_CALLBACK(gtk_main_quit), NULL);
-
-    static void *data[3];
-    data[0] = txtusername;
-    data[1] = txtpassword;
-    data[2] = statusbar;
-    g_signal_connect(G_OBJECT(loginbtn), "clicked", G_CALLBACK(login_clicked), data);
+    g_signal_connect(G_OBJECT(loginbtn), "clicked", G_CALLBACK(login_clicked), &loginui);
 
     gtk_widget_show_all(w);
-}
-void login_clicked(GtkWidget *w, void **data) {
-    GtkEntry *txtusername = data[0];
-    GtkEntry *txtpassword = data[1];
-    GtkStatusbar *statusbar = data[2];
-    HostCtx *hostctx = &_uictx.hostctx;
 
-    String statusstr = StringFormat("Connecting to %s...", _uictx.serverhost);
-    set_statusbar_message0(statusbar, statusstr.bs);
+    enable_loginui(&loginui, FALSE);
+    String status = StringNew("Not Connected");
+    set_statusbar_message0(GTK_STATUSBAR(statusbar), status.bs);
 
-    int backlog = 50;
-    struct sockaddr sa;
-    int serverfd = OpenConnectSocket(_uictx.serverhost, _uictx.serverport, backlog, &sa);
-    if (serverfd == -1) {
-        StringAssignFormat(&statusstr, "Error connecting to %s", _uictx.serverhost);
-        set_statusbar_message0(statusbar, statusstr.bs);
-        StringFree(statusstr);
-        return;
+    int z;
+    struct addrinfo hints, *ai;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = AI_PASSIVE;
+    z = getaddrinfo(_uictx.serverhost, _uictx.serverport, &hints, &ai);
+    if (z != 0) {
+        StringAssignFormat(&status, "Can't reach server '%s'", _uictx.serverhost);
+        fprintf(stderr, "getaddrinfo(): %s\n", gai_strerror(z));
+        set_statusbar_message0(GTK_STATUSBAR(statusbar), status.bs);
+
+        StringFree(status);
+        return w;
     }
-    String ipaddr = StringNew("");
-    GetTextIPAddress(&sa, &ipaddr);
-    StringAssignFormat(&statusstr, "Connected to %.*s\n", ipaddr.len, ipaddr.bs);
-    StringFree(ipaddr);
-    set_statusbar_message0(statusbar, statusstr.bs);
+    int fd = socket(ai->ai_family, ai->ai_socktype | SOCK_NONBLOCK, ai->ai_protocol);
+    if (fd == -1) {
+        StringAssignFormat(&status, "Can't create socket for '%s'", _uictx.serverhost);
+        fprintf(stderr, "socket(): %s\n", strerror(errno));
+        set_statusbar_message0(GTK_STATUSBAR(statusbar), status.bs);
 
-    hostctx->fd = serverfd;
-    _uictx.serverch = g_io_channel_unix_new(serverfd);
-    g_io_add_watch(_uictx.serverch, G_IO_IN, on_server_read, hostctx);
+        freeaddrinfo(ai);
+        StringFree(status);
+        return w;
+    }
+    int yes=1;
+    z = setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+    if (z == -1)
+        fprintf(stderr, "setsockopt(): %s\n", strerror(errno));
 
-    StringAssignFormat(&statusstr, "Logging in...");
-    set_statusbar_message0(statusbar, statusstr.bs);
+    _uictx.serverch = g_io_channel_unix_new(fd);
+    _uictx.hostctx.fd = fd;
 
-    char *alias = (char *) gtk_entry_get_text(GTK_ENTRY(txtusername));
-    char *password = (char *) gtk_entry_get_text(GTK_ENTRY(txtpassword));
-    LoginMsg loginmsg = {LOGINMSG, StringNew(alias), StringNew(password)};
-    MsgPack(&loginmsg, &hostctx->writebuf);
-    int z = NetSend(hostctx->fd, &hostctx->writebuf);
-    // If not able to send all the bytes, start event handler to resume
-    // sending bytes.
-    if (z != 0)
-        g_io_add_watch(_uictx.serverch, G_IO_OUT, on_server_write, hostctx);
+    StringAssignFormat(&status, "Connecting to %s", _uictx.serverhost);
+    set_statusbar_message0(GTK_STATUSBAR(statusbar), status.bs);
 
-    StringFree(statusstr);
+    z = connect(fd, ai->ai_addr, ai->ai_addrlen);
+    if (z == -1 && errno == EINPROGRESS) {
+        g_io_add_watch(_uictx.serverch, G_IO_OUT, on_server_connect, &loginui);
+        freeaddrinfo(ai);
+        StringFree(status);
+        return w;
+    }
+    if (z == -1) {
+        StringAssignFormat(&status, "Can't connect to '%s'", _uictx.serverhost);
+        fprintf(stderr, "connect(): %s\n", strerror(errno));
+        set_statusbar_message0(GTK_STATUSBAR(statusbar), status.bs);
+
+        freeaddrinfo(ai);
+        StringFree(status);
+        return w;
+    }
+
+    freeaddrinfo(ai);
+    StringFree(status);
+    return w;
+}
+void login_clicked(GtkWidget *w, LoginUI *loginui) {
+}
+void enable_loginui(LoginUI *loginui, gboolean f) {
+    gtk_widget_set_sensitive(loginui->txtusername, f);
+    gtk_widget_set_sensitive(loginui->txtpassword, f);
+    gtk_widget_set_sensitive(loginui->loginbtn, f);
+}
+gboolean on_server_connect(GIOChannel *ch, GIOCondition iocond, void *data) {
+    printf("on_server_connect()\n");
+    LoginUI *loginui = data;
+    int serverfd = g_io_channel_unix_get_fd(ch);
+
+    int err=0;
+    socklen_t errlen = sizeof(err);
+
+    int z = getsockopt(serverfd, SOL_SOCKET, SO_ERROR, &err, &errlen);
+    // Error reading socket status, keep this event handler alive to try again.
+    if (z == -1) {
+        fprintf(stderr, "getsockopt(): %s\n", strerror(errno));
+        return TRUE;
+    }
+    if (err != 0) {
+        // Connect failed.
+        String status = StringFormat("Failed connecting to '%s'", _uictx.serverhost);
+        fprintf(stderr, "connect() error: %s\n", strerror(err));
+        set_statusbar_message0(GTK_STATUSBAR(loginui->statusbar), status.bs);
+
+        StringFree(status);
+        return FALSE;
+    }
+    // Connect succeeded.
+    String status = StringFormat("Connected to %s", _uictx.serverhost);
+    enable_loginui(loginui, TRUE);
+    set_statusbar_message0(GTK_STATUSBAR(loginui->statusbar), status.bs);
+    StringFree(status);
+    return FALSE;
 }
 
 

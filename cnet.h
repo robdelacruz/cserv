@@ -37,6 +37,7 @@ typedef struct {
 
 void NetInit(SelectCtx *selectctx, int serverfd);
 
+int CreateNonBlockingSocket(char *host, char *port, struct sockaddr *sa);
 int OpenListenSocket(char *host, char *port, int backlog, struct sockaddr *sa);
 int OpenConnectSocket(char *host, char *port, int backlog, struct sockaddr *sa);
 void GetTextIPAddress(struct sockaddr *sa, String *dest);

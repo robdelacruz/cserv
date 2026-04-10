@@ -17,6 +17,38 @@ void NetInit(SelectCtx *selectctx, int serverfd) {
     selectctx->hostctxs = HostCtxArrayNew(255);
 }
 
+int CreateNonBlockingSocket(char *host, char *port, struct sockaddr *sa) {
+    int z;
+    struct addrinfo hints, *ai;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = AI_PASSIVE;
+    z = getaddrinfo(host, port, &hints, &ai);
+    if (z != 0) {
+        fprintf(stderr, "getaddrinfo(): %s\n", gai_strerror(z));
+        errno = EINVAL;
+        return -1;
+    }
+    if (sa != NULL)
+        memcpy(sa, ai->ai_addr, ai->ai_addrlen);
+
+    int fd = socket(ai->ai_family, ai->ai_socktype | SOCK_NONBLOCK, ai->ai_protocol);
+    if (fd == -1) {
+        fprintf(stderr, "socket(): %s\n", strerror(errno));
+        freeaddrinfo(ai);
+        return -1;
+    }
+    int yes=1;
+    z = setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+    if (z == -1) {
+        fprintf(stderr, "setsockopt(): %s\n", strerror(errno));
+        freeaddrinfo(ai);
+        return -1;
+    }
+
+    return fd;
+}
 int OpenListenSocket(char *host, char *port, int backlog, struct sockaddr *sa) {
     int z;
     struct addrinfo hints, *ai;
@@ -99,7 +131,6 @@ int OpenConnectSocket(char *host, char *port, int backlog, struct sockaddr *sa) 
     freeaddrinfo(ai);
     return fd;
 }
-
 void GetTextIPAddress(struct sockaddr *sa, String *dest) {
     void *sin_addr;
     if (sa->sa_family == AF_INET) {
