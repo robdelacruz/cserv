@@ -80,7 +80,7 @@ int main(int argc, char *argv[]) {
     gtk_init(&argc, &argv);
 
     _uictx.serverch = NULL;
-    _uictx.hostctx = HostCtxNew(0);
+    _uictx.hostctx = HostCtxNew(-1);
     _uictx.serverhost = "localhost";
     _uictx.serverport = "8000";
     if (argc > 1)
@@ -113,9 +113,10 @@ gboolean on_server_write(GIOChannel *ch, GIOCondition iocond, void *data) {
     return FALSE;
 }
 
-void login_clicked(GtkWidget *w, LoginUI *loginui);
 void enable_loginui(LoginUI *loginui, gboolean f);
+void login_open_connect_socket(LoginUI *loginui);
 gboolean on_server_connect(GIOChannel *ch, GIOCondition iocond, void *data);
+void login_clicked(GtkWidget *w, LoginUI *loginui);
 
 GtkWidget *create_login_ui() {
     GtkWidget *w = gtk_window_new(GTK_WINDOW_TOPLEVEL);
@@ -166,14 +167,16 @@ GtkWidget *create_login_ui() {
     g_signal_connect(w, "destroy", G_CALLBACK(gtk_main_quit), NULL);
     g_signal_connect(G_OBJECT(loginbtn), "clicked", G_CALLBACK(login_clicked), &loginui);
 
+    set_statusbar_message0(GTK_STATUSBAR(statusbar), "Not Connected");
     gtk_widget_show_all(w);
 
-    enable_loginui(&loginui, FALSE);
-    String status = StringNew("Not Connected");
-    set_statusbar_message0(GTK_STATUSBAR(statusbar), status.bs);
-
+    login_open_connect_socket(&loginui);
+    return w;
+}
+void login_open_connect_socket(LoginUI *loginui) {
     int z;
-    struct addrinfo hints, *ai;
+    String status = StringNew("");
+    struct addrinfo hints, *ai=NULL;
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
@@ -182,20 +185,15 @@ GtkWidget *create_login_ui() {
     if (z != 0) {
         StringAssignFormat(&status, "Can't reach server '%s'", _uictx.serverhost);
         fprintf(stderr, "getaddrinfo(): %s\n", gai_strerror(z));
-        set_statusbar_message0(GTK_STATUSBAR(statusbar), status.bs);
-
-        StringFree(status);
-        return w;
+        set_statusbar_message0(GTK_STATUSBAR(loginui->statusbar), status.bs);
+        goto ret;
     }
     int fd = socket(ai->ai_family, ai->ai_socktype | SOCK_NONBLOCK, ai->ai_protocol);
     if (fd == -1) {
         StringAssignFormat(&status, "Can't create socket for '%s'", _uictx.serverhost);
         fprintf(stderr, "socket(): %s\n", strerror(errno));
-        set_statusbar_message0(GTK_STATUSBAR(statusbar), status.bs);
-
-        freeaddrinfo(ai);
-        StringFree(status);
-        return w;
+        set_statusbar_message0(GTK_STATUSBAR(loginui->statusbar), status.bs);
+        goto ret;
     }
     int yes=1;
     z = setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
@@ -206,30 +204,27 @@ GtkWidget *create_login_ui() {
     _uictx.hostctx.fd = fd;
 
     StringAssignFormat(&status, "Connecting to %s", _uictx.serverhost);
-    set_statusbar_message0(GTK_STATUSBAR(statusbar), status.bs);
+    set_statusbar_message0(GTK_STATUSBAR(loginui->statusbar), status.bs);
 
     z = connect(fd, ai->ai_addr, ai->ai_addrlen);
     if (z == -1 && errno == EINPROGRESS) {
-        g_io_add_watch(_uictx.serverch, G_IO_OUT, on_server_connect, &loginui);
-        freeaddrinfo(ai);
-        StringFree(status);
-        return w;
+        g_io_add_watch(_uictx.serverch, G_IO_OUT, on_server_connect, loginui);
+        goto ret;
     }
     if (z == -1) {
         StringAssignFormat(&status, "Can't connect to '%s'", _uictx.serverhost);
         fprintf(stderr, "connect(): %s\n", strerror(errno));
-        set_statusbar_message0(GTK_STATUSBAR(statusbar), status.bs);
-
-        freeaddrinfo(ai);
-        StringFree(status);
-        return w;
+        set_statusbar_message0(GTK_STATUSBAR(loginui->statusbar), status.bs);
     }
 
-    freeaddrinfo(ai);
+ret:
+    if (ai)
+        freeaddrinfo(ai);
     StringFree(status);
-    return w;
 }
 void login_clicked(GtkWidget *w, LoginUI *loginui) {
+    if (_uictx.serverch == NULL || _uictx.hostctx.fd == -1)
+        login_open_connect_socket(loginui);
 }
 void enable_loginui(LoginUI *loginui, gboolean f) {
     gtk_widget_set_sensitive(loginui->txtusername, f);
