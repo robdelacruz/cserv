@@ -9,6 +9,37 @@
 #include "clib.h"
 #include "cnet.h"
 
+int getaddrinfo0(const char *node, const char *service, const struct addrinfo *hints, struct addrinfo **res) {
+    int z = getaddrinfo(node, service, hints, res);
+    if (z != 0)
+        fprintf(stderr, "getaddrinfo(): %s\n", gai_strerror(z));
+    return z;
+}
+int socket0(int domain, int type, int protocol) {
+    int z = socket(domain, type, protocol);
+    if (z == -1)
+        fprintf(stderr, "socket(): %s\n", strerror(z));
+    return z;
+}
+int getsockopt0(int sockfd, int level, int optname, void *optval, socklen_t *optlen) {
+    int z = getsockopt(sockfd, level, optname, optval, optlen);
+    if (z != 0)
+        fprintf(stderr, "getsockopt(): %s\n", strerror(z));
+    return z;
+}
+int setsockopt0(int sockfd, int level, int optname, const void *optval, socklen_t optlen) {
+    int z = setsockopt(sockfd, level, optname, optval, optlen);
+    if (z != 0)
+        fprintf(stderr, "setsockopt(): %s\n", strerror(z));
+    return z;
+}
+int connect0(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
+    int z = connect(sockfd, addr, addrlen);
+    if (z != 0 && errno != EINPROGRESS)
+        fprintf(stderr, "connect(): %s\n", strerror(z));
+    return z;
+}
+
 void NetInit(SelectCtx *selectctx, int serverfd) {
     FD_ZERO(&selectctx->readfds);
     FD_ZERO(&selectctx->writefds);

@@ -35,6 +35,12 @@ typedef struct {
     HostCtxArray hostctxs;
 } SelectCtx;
 
+int getaddrinfo0(const char *node, const char *service, const struct addrinfo *hints, struct addrinfo **res);
+int socket0(int domain, int type, int protocol);
+int getsockopt0(int sockfd, int level, int optname, void *optval, socklen_t *optlen);
+int setsockopt0(int sockfd, int level, int optname, const void *optval, socklen_t optlen);
+int connect0(int sockfd, const struct sockaddr *addr, socklen_t addrlen);
+
 void NetInit(SelectCtx *selectctx, int serverfd);
 
 int CreateNonBlockingSocket(char *host, char *port, struct sockaddr *sa);
