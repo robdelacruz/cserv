@@ -91,8 +91,7 @@ int main(int argc, char *argv[]) {
     printf("Listening on %.*s port %s...\n", ipaddr.len, ipaddr.bs, port);
     StringFree(ipaddr);
 
-    SelectCtx selectctx;
-    NetInit(&selectctx, s0);
+    SelectCtx selectctx = SelectCtxNew(s0);
 
     fd_set tmp_readfds, tmp_writefds;
     while (1) {

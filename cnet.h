@@ -41,7 +41,8 @@ int getsockopt0(int sockfd, int level, int optname, void *optval, socklen_t *opt
 int setsockopt0(int sockfd, int level, int optname, const void *optval, socklen_t optlen);
 int connect0(int sockfd, const struct sockaddr *addr, socklen_t addrlen);
 
-void NetInit(SelectCtx *selectctx, int serverfd);
+SelectCtx SelectCtxNew(int serverfd);
+void SelectCtxFree(SelectCtx *selctx);
 
 int CreateNonBlockingSocket(char *host, char *port, struct sockaddr *sa);
 int OpenListenSocket(char *host, char *port, int backlog, struct sockaddr *sa);

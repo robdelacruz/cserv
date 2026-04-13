@@ -84,7 +84,6 @@ UICtx _uictx;
 int main(int argc, char *argv[]) {
     gtk_init(&argc, &argv);
 
-    _uictx.serverch = NULL;
     _uictx.hostctx = HostCtxNew(-1);
     _uictx.serverhost = "localhost";
     _uictx.serverport = "8000";
@@ -125,16 +124,16 @@ typedef struct {
     GtkWidget *txtpassword;
     GtkWidget *loginbtn;
     GtkWidget *statusbar;
+    gboolean enabled;
+    String status;
 } LoginUI;
 
 gboolean login_oncreate(void *data);
 void enable_loginui(LoginUI *loginui, gboolean f);
 void login_clicked(GtkWidget *w, LoginUI *loginui);
-void login_open_connect_socket(LoginUI *loginui, gboolean dologin);
-gboolean on_server_connect(GIOChannel *ch, GIOCondition iocond, void *data);
-gboolean on_server_connect_dologin(GIOChannel *ch, GIOCondition iocond, void *data);
+static gpointer bg_connect_server(gpointer data);
+
 void send_login(LoginUI *loginui);
-gboolean on_server_write_login(GIOChannel *ch, GIOCondition iocond, void *data);
 
 GtkWidget *create_login_ui() {
     GtkWidget *w = gtk_window_new(GTK_WINDOW_TOPLEVEL);
@@ -180,22 +179,18 @@ GtkWidget *create_login_ui() {
     loginui.txtpassword = txtpassword;
     loginui.loginbtn = loginbtn;
     loginui.statusbar = statusbar;
+    loginui.enabled = TRUE;
+    loginui.status = StringNew("Not Connected");
 
     g_signal_connect(G_OBJECT(quitmi), "activate", G_CALLBACK(gtk_main_quit), NULL);
     g_signal_connect(w, "destroy", G_CALLBACK(gtk_main_quit), NULL);
     g_signal_connect(G_OBJECT(loginbtn), "clicked", G_CALLBACK(login_clicked), &loginui);
 
-    set_statusbar(GTK_STATUSBAR(statusbar), "Not Connected");
+    set_statusbar(GTK_STATUSBAR(statusbar), loginui.status.bs);
     gtk_widget_show_all(w);
 
-    g_timeout_add(100, login_oncreate, &loginui);
+    g_thread_new("threadlogin", bg_connect_server, &loginui);
     return w;
-}
-gboolean login_oncreate(void *data) {
-    printf("login_oncreate()\n");
-    LoginUI *loginui = data;
-    login_open_connect_socket(loginui, FALSE);
-    return FALSE;
 }
 void enable_loginui(LoginUI *loginui, gboolean f) {
     gtk_widget_set_sensitive(loginui->txtusername, f);
@@ -203,13 +198,24 @@ void enable_loginui(LoginUI *loginui, gboolean f) {
     gtk_widget_set_sensitive(loginui->loginbtn, f);
 }
 void login_clicked(GtkWidget *w, LoginUI *loginui) {
-    if (_uictx.serverch == NULL || _uictx.hostctx.fd == -1)
-        login_open_connect_socket(loginui, TRUE);
 }
-void login_open_connect_socket(LoginUI *loginui, gboolean dologin) {
+static gboolean update_statusbar(gpointer data) {
+    LoginUI *loginui = data;
+    set_statusbar_message(GTK_STATUSBAR(loginui->statusbar), 0, loginui->status.bs);
+    return G_SOURCE_REMOVE;
+}
+static gboolean update_active_controls(gpointer data) {
+    LoginUI *loginui = data;
+    enable_loginui(loginui, loginui->enabled);
+    return G_SOURCE_REMOVE;
+}
+static void open_server_socket(LoginUI *loginui) {
     int z;
 
-    set_statusbar(GTK_STATUSBAR(loginui->statusbar), "Connecting to %s...", _uictx.serverhost);
+    StringAssignFormat(&loginui->status, "Connecting to %s...", _uictx.serverhost);
+    g_idle_add(update_statusbar, loginui);
+    loginui->enabled = FALSE;
+    g_idle_add(update_active_controls, loginui);
 
     struct addrinfo hints, *ai=NULL;
     memset(&hints, 0, sizeof(hints));
@@ -218,82 +224,93 @@ void login_open_connect_socket(LoginUI *loginui, gboolean dologin) {
     hints.ai_flags = AI_PASSIVE;
     z = getaddrinfo0(_uictx.serverhost, _uictx.serverport, &hints, &ai);
     if (z != 0) {
-        set_statusbar(GTK_STATUSBAR(loginui->statusbar), "Can't reach server '%s'", _uictx.serverhost);
+        StringAssignFormat(&loginui->status, "Can't reach server '%s'", _uictx.serverhost);
+        g_idle_add(update_statusbar, loginui);
         goto ret;
     }
     int fd = socket0(ai->ai_family, ai->ai_socktype | SOCK_NONBLOCK, ai->ai_protocol);
     if (fd == -1) {
-        set_statusbar(GTK_STATUSBAR(loginui->statusbar), "Can't create socket for '%s'", _uictx.serverhost);
+        StringAssignFormat(&loginui->status, "Can't create socket for '%s'", _uictx.serverhost);
+        g_idle_add(update_statusbar, loginui);
         goto ret;
     }
     int yes=1;
     z = setsockopt0(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
 
-    if (_uictx.serverch != NULL)
-        g_io_channel_shutdown(_uictx.serverch, TRUE, NULL);
-
-    _uictx.serverch = g_io_channel_unix_new(fd);
-    _uictx.hostctx.fd = fd;
-
     z = connect0(fd, ai->ai_addr, ai->ai_addrlen);
     if (z == -1 && errno == EINPROGRESS) {
-        if (dologin)
-            g_io_add_watch(_uictx.serverch, G_IO_OUT, on_server_connect_dologin, loginui);
-        else
-            g_io_add_watch(_uictx.serverch, G_IO_OUT, on_server_connect, loginui);
+        fd_set writefds;
+        FD_ZERO(&writefds);
+        FD_SET(fd, &writefds);
+
+        while (1) {
+            struct timeval timeout = {2, 0}; // timeout in 2 seconds
+            int zz = select(fd+1, NULL, &writefds, NULL, &timeout);
+            if (zz == 0) {
+                // Handle timeout
+                StringAssignFormat(&loginui->status, "Timeout connecting to '%s'", _uictx.serverhost);
+                g_idle_add(update_statusbar, loginui);
+
+                shutdown(fd, SHUT_RDWR);
+                goto ret;
+            }
+            if (zz == -1 && errno == EINTR)
+                continue;
+            if (zz == -1) {
+                fprintf(stderr, "select(): %s\n", strerror(errno));
+                goto connect_fail;
+            }
+            assert(zz > 0);
+            break;
+        }
+        assert(FD_ISSET(fd, &writefds));
+
+        int err=0;
+        socklen_t errlen = sizeof(err);
+        int zz = getsockopt0(fd, SOL_SOCKET, SO_ERROR, &err, &errlen);
+        if (zz != 0) {
+            fprintf(stderr, "nonblocking connect() error: getsockopt() failed\n");
+            goto connect_fail;
+        } else if (err != 0) {
+            fprintf(stderr, "nonblocking connect() error: %s\n", strerror(err));
+            goto connect_fail;
+        } else {
+            // Connection success
+            goto connected;
+        }
         goto ret;
     }
-    if (z == -1) {
-        set_statusbar(GTK_STATUSBAR(loginui->statusbar), "Can't connect to '%s'", _uictx.serverhost);
+    if (z < 0)
+        goto connect_fail;
+
+connect_fail:
+    StringAssignFormat(&loginui->status, "Can't connect to '%s'", _uictx.serverhost);
+    g_idle_add(update_statusbar, loginui);
+    shutdown(fd, SHUT_RDWR);
+    goto ret;
+
+connected:
+    if (_uictx.hostctx.fd != -1) {
+        shutdown(_uictx.hostctx.fd, SHUT_RDWR);
+        _uictx.hostctx.fd = -1;
     }
-    if (dologin)
-        send_login(loginui);
+    _uictx.hostctx.fd = fd;
+    StringAssignFormat(&loginui->status, "Connected to %s", _uictx.serverhost);
+    g_idle_add(update_statusbar, loginui);
 
 ret:
+    loginui->enabled = TRUE;
+    g_idle_add(update_active_controls, loginui);
+
     if (ai)
         freeaddrinfo(ai);
 }
-gboolean on_server_connect0(GIOChannel *ch, GIOCondition iocond, void *data) {
+static gpointer bg_connect_server(gpointer data) {
     LoginUI *loginui = data;
-    int serverfd = g_io_channel_unix_get_fd(ch);
-
-    int err=0;
-    socklen_t errlen = sizeof(err);
-
-    int z = getsockopt0(serverfd, SOL_SOCKET, SO_ERROR, &err, &errlen);
-    // Error reading socket status, handle this as connect failed.
-    if (z == -1) {
-        set_statusbar(GTK_STATUSBAR(loginui->statusbar), "Failed connecting to '%s'", _uictx.serverhost);
-        return FALSE;
-    }
-    if (err != 0) {
-        // Connect failed
-        fprintf(stderr, "connect() error: %s\n", strerror(err));
-        set_statusbar(GTK_STATUSBAR(loginui->statusbar), "Failed connecting to '%s'", _uictx.serverhost);
-        return FALSE;
-    }
-    // Connect succeeded
-    enable_loginui(loginui, TRUE);
-    set_statusbar(GTK_STATUSBAR(loginui->statusbar), "Connected to %s", _uictx.serverhost);
-    return TRUE;
-}
-gboolean on_server_connect(GIOChannel *ch, GIOCondition iocond, void *data) {
-    printf("on_server_connect()\n");
-    on_server_connect0(ch, iocond, data);
-    return FALSE;
-}
-gboolean on_server_connect_dologin(GIOChannel *ch, GIOCondition iocond, void *data) {
-    printf("on_server_connect_dologin()\n");
-    if (on_server_connect0(ch, iocond, data) == FALSE)
-        return FALSE;
-
-    send_login((LoginUI *) data);
-    return FALSE;
+    open_server_socket(loginui);
+    return NULL;
 }
 void send_login(LoginUI *loginui) {
-}
-gboolean on_server_write_login(GIOChannel *ch, GIOCondition iocond, void *data) {
-    LoginUI *loginui = data;
-    return FALSE;
+    printf("send_login()\n");
 }
 

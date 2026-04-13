@@ -57,8 +57,7 @@ int main(int argc, char *argv[]) {
     StringFree(ipaddr);
 
     HostCtx hostctx = HostCtxNew(serverfd);
-    SelectCtx selectctx;
-    NetInit(&selectctx, serverfd);
+    SelectCtx selectctx = SelectCtxNew(serverfd);
 
     // Try sending some message to server
     u8 msgno = REGISTERMSG;
@@ -138,6 +137,7 @@ int main(int argc, char *argv[]) {
     }
     close(serverfd);
 
+    SelectCtxFree(&selectctx);
     return 0;
 }
 

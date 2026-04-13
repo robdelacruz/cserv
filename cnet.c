@@ -40,12 +40,19 @@ int connect0(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
     return z;
 }
 
-void NetInit(SelectCtx *selectctx, int serverfd) {
-    FD_ZERO(&selectctx->readfds);
-    FD_ZERO(&selectctx->writefds);
-    FD_SET(serverfd, &selectctx->readfds);
-    selectctx->maxfd = serverfd;
-    selectctx->hostctxs = HostCtxArrayNew(255);
+SelectCtx SelectCtxNew(int serverfd) {
+    SelectCtx selctx;
+    FD_ZERO(&selctx.readfds);
+    FD_ZERO(&selctx.writefds);
+    FD_SET(serverfd, &selctx.readfds);
+    selctx.maxfd = serverfd;
+    selctx.hostctxs = HostCtxArrayNew(255);
+    return selctx;
+}
+void SelectCtxFree(SelectCtx *selctx) {
+    FD_ZERO(&selctx->readfds);
+    FD_ZERO(&selctx->writefds);
+    HostCtxArrayFree(&selctx->hostctxs);
 }
 
 int CreateNonBlockingSocket(char *host, char *port, struct sockaddr *sa) {
