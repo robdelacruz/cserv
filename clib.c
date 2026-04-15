@@ -56,6 +56,13 @@ void ArenaGet(Arena *a, void *dest, u32 offset, u32 size) {
     memcpy(dest, a->bs+offset, size);
 }
 
+String StringNew0() {
+    String str;
+    str.len = 0;
+    str.bs = (char *) malloc(1);
+    str.bs[0] = 0;
+    return str;
+}
 String StringNew(char *s) {
     String str;
     str.len = strlen(s);

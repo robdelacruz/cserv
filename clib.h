@@ -53,6 +53,7 @@ void *ArenaAlloc(Arena *a, u32 size);
 void *ArenaPushBytes(Arena *a, void *src, u32 size);
 void ArenaGet(Arena *a, void *dest, u32 offset, u32 size);
 
+String StringNew0();
 String StringNew(char *s);
 String StringNewFromBytes(char *bs, int bslen);
 void StringFree(String str);

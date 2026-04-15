@@ -19,11 +19,15 @@
 #include "msg.h"
 
 typedef struct {
-    GIOChannel *serverch;
-    HostCtx hostctx;
-    char *serverhost;
-    char *serverport;
-} UICtx;
+    GtkWidget *win;
+    GtkWidget *menubar;
+    GtkWidget *txtusername;
+    GtkWidget *txtpassword;
+    GtkWidget *loginbtn;
+    GtkWidget *statusbar;
+    gboolean enabled;
+    String status;
+} LoginUI;
 
 GtkWidget *create_label1(char *caption) {
     GtkWidget *lbl = gtk_label_new(caption);
@@ -69,73 +73,42 @@ void set_statusbar(GtkStatusbar *statusbar, const char *fmt, ...) {
 
     StringFree(str);
 }
+gpointer new_data_args(int n, ...) {
+    gpointer *data = malloc(sizeof(gpointer)*n);
+    va_list args;
 
-gboolean idlefunc(gpointer userdata) {
-    return TRUE;
+    va_start(args, n);
+    for (int i=0; i < n; i++)
+        data[i] = va_arg(args, gpointer);
+    va_end(args);
+
+    return data;
 }
 
-gboolean on_server_read(GIOChannel *ch, GIOCondition iocond, void *data);
-gboolean on_server_write(GIOChannel *ch, GIOCondition iocond, void *data);
-
-GtkWidget *create_login_ui();
-
-UICtx _uictx;
+static GtkWidget *create_login_ui(char *serverhost, char *serverport, HostCtx *hostctx);
 
 int main(int argc, char *argv[]) {
     gtk_init(&argc, &argv);
 
-    _uictx.hostctx = HostCtxNew(-1);
-    _uictx.serverhost = "localhost";
-    _uictx.serverport = "8000";
+    HostCtx hostctx = HostCtxNew(-1);
+    char *serverhost = "localhost";
+    char *serverport = "8000";
     if (argc > 1)
-        _uictx.serverhost = argv[1];
+        serverhost = argv[1];
     if (argc > 2)
-        _uictx.serverport = argv[2];
+        serverport = argv[2];
 
-    GtkWidget *loginwin = create_login_ui();
+    GtkWidget *loginwin = create_login_ui(serverhost, serverport, &hostctx);
     gtk_main();
     return 0;
 }
 
-gboolean on_server_read(GIOChannel *ch, GIOCondition iocond, void *data) {
-    printf("on_server_read()\n");
-    HostCtx *hostctx = data;
-    return TRUE;
-}
-gboolean on_server_write(GIOChannel *ch, GIOCondition iocond, void *data) {
-    printf("on_server_write()\n");
-    HostCtx *hostctx = data;
-    int serverfd = g_io_channel_unix_get_fd(ch);
-
-    int z = NetSend(serverfd, &hostctx->writebuf);
-    // If not able to send all the bytes, keep this event handler alive 
-    // to resume sending bytes.
-    if (z != 0)
-        return TRUE;
-
-    // All bytes sent, remove this event handler.
-    return FALSE;
-}
-
-typedef struct {
-    GtkWidget *win;
-    GtkWidget *menubar;
-    GtkWidget *txtusername;
-    GtkWidget *txtpassword;
-    GtkWidget *loginbtn;
-    GtkWidget *statusbar;
-    gboolean enabled;
-    String status;
-} LoginUI;
-
-gboolean login_oncreate(void *data);
-void enable_loginui(LoginUI *loginui, gboolean f);
+static gpointer connect_server(gpointer data);
+static void open_server_socket(char *serverhost, char *serverport, HostCtx *hostctx, LoginUI *loginui);
 void login_clicked(GtkWidget *w, LoginUI *loginui);
-static gpointer bg_connect_server(gpointer data);
-
 void send_login(LoginUI *loginui);
 
-GtkWidget *create_login_ui() {
+static GtkWidget *create_login_ui(char *serverhost, char *serverport, HostCtx *hostctx) {
     GtkWidget *w = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_title(GTK_WINDOW(w), "Messenger");
     gtk_window_set_default_size(GTK_WINDOW(w), 230,300);
@@ -189,7 +162,7 @@ GtkWidget *create_login_ui() {
     set_statusbar(GTK_STATUSBAR(statusbar), loginui.status.bs);
     gtk_widget_show_all(w);
 
-    g_thread_new("threadlogin", bg_connect_server, &loginui);
+    g_thread_new("threadlogin", connect_server, new_data_args(4, serverhost, serverport, hostctx, &loginui));
     return w;
 }
 void enable_loginui(LoginUI *loginui, gboolean f) {
@@ -200,38 +173,61 @@ void enable_loginui(LoginUI *loginui, gboolean f) {
 void login_clicked(GtkWidget *w, LoginUI *loginui) {
 }
 static gboolean update_statusbar(gpointer data) {
-    LoginUI *loginui = data;
-    set_statusbar_message(GTK_STATUSBAR(loginui->statusbar), 0, loginui->status.bs);
-    return G_SOURCE_REMOVE;
-}
-static gboolean update_active_controls(gpointer data) {
-    LoginUI *loginui = data;
-    enable_loginui(loginui, loginui->enabled);
-    return G_SOURCE_REMOVE;
-}
-static void open_server_socket(LoginUI *loginui) {
-    int z;
+    void **args = data;
 
-    StringAssignFormat(&loginui->status, "Connecting to %s...", _uictx.serverhost);
-    g_idle_add(update_statusbar, loginui);
-    loginui->enabled = FALSE;
-    g_idle_add(update_active_controls, loginui);
+    GtkStatusbar *sb = args[0];
+    char *s = args[1];
+    set_statusbar_message(GTK_STATUSBAR(sb), 0, s);
+
+    free(args);
+    return G_SOURCE_REMOVE;
+}
+static gboolean enable_widget(gpointer data) {
+    void **args = data;
+
+    GtkWidget *w = args[0];
+    gboolean f = GPOINTER_TO_INT(args[1]);
+    gtk_widget_set_sensitive(w, f);
+
+    free(args);
+    return G_SOURCE_REMOVE;
+}
+static gpointer connect_server(gpointer data) {
+    void **args = data;
+
+    char *serverhost = args[0];
+    char *serverport = args[1];
+    HostCtx *hostctx = args[2];
+    LoginUI *loginui = args[3];
+    open_server_socket(serverhost, serverport, hostctx, loginui);
+
+    free(args);
+    return NULL;
+}
+static void open_server_socket(char *serverhost, char *serverport, HostCtx *hostctx, LoginUI *loginui) {
+    int z;
+    static String status = {0};
+
+    StringAssignFormat(&status, "Connecting to %s...", serverhost);
+    g_idle_add(update_statusbar, new_data_args(2, loginui->statusbar, status.bs));
+
+    g_idle_add(enable_widget, new_data_args(2, loginui->loginbtn, FALSE));
 
     struct addrinfo hints, *ai=NULL;
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_PASSIVE;
-    z = getaddrinfo0(_uictx.serverhost, _uictx.serverport, &hints, &ai);
+    z = getaddrinfo0(serverhost, serverport, &hints, &ai);
     if (z != 0) {
-        StringAssignFormat(&loginui->status, "Can't reach server '%s'", _uictx.serverhost);
-        g_idle_add(update_statusbar, loginui);
+        StringAssignFormat(&status, "Can't reach server '%s'", serverhost);
+        g_idle_add(update_statusbar, new_data_args(2, loginui->statusbar, status.bs));
         goto ret;
     }
     int fd = socket0(ai->ai_family, ai->ai_socktype | SOCK_NONBLOCK, ai->ai_protocol);
     if (fd == -1) {
-        StringAssignFormat(&loginui->status, "Can't create socket for '%s'", _uictx.serverhost);
-        g_idle_add(update_statusbar, loginui);
+        StringAssignFormat(&status, "Can't create socket for '%s'", serverhost);
+        g_idle_add(update_statusbar, new_data_args(2, loginui->statusbar, status.bs));
         goto ret;
     }
     int yes=1;
@@ -248,8 +244,8 @@ static void open_server_socket(LoginUI *loginui) {
             int zz = select(fd+1, NULL, &writefds, NULL, &timeout);
             if (zz == 0) {
                 // Handle timeout
-                StringAssignFormat(&loginui->status, "Timeout connecting to '%s'", _uictx.serverhost);
-                g_idle_add(update_statusbar, loginui);
+                StringAssignFormat(&status, "Timeout connecting to '%s'", serverhost);
+                g_idle_add(update_statusbar, new_data_args(2, loginui->statusbar, status.bs));
 
                 shutdown(fd, SHUT_RDWR);
                 goto ret;
@@ -284,31 +280,25 @@ static void open_server_socket(LoginUI *loginui) {
         goto connect_fail;
 
 connect_fail:
-    StringAssignFormat(&loginui->status, "Can't connect to '%s'", _uictx.serverhost);
-    g_idle_add(update_statusbar, loginui);
+    StringAssignFormat(&status, "Can't connect to '%s'", serverhost);
+    g_idle_add(update_statusbar, new_data_args(2, loginui->statusbar, status.bs));
     shutdown(fd, SHUT_RDWR);
     goto ret;
 
 connected:
-    if (_uictx.hostctx.fd != -1) {
-        shutdown(_uictx.hostctx.fd, SHUT_RDWR);
-        _uictx.hostctx.fd = -1;
+    if (hostctx->fd != -1) {
+        shutdown(hostctx->fd, SHUT_RDWR);
+        hostctx->fd = -1;
     }
-    _uictx.hostctx.fd = fd;
-    StringAssignFormat(&loginui->status, "Connected to %s", _uictx.serverhost);
-    g_idle_add(update_statusbar, loginui);
+    hostctx->fd = fd;
+    StringAssignFormat(&status, "Connected to %s", serverhost);
+    g_idle_add(update_statusbar, new_data_args(2, loginui->statusbar, status.bs));
 
 ret:
-    loginui->enabled = TRUE;
-    g_idle_add(update_active_controls, loginui);
+    g_idle_add(enable_widget, new_data_args(2, loginui->loginbtn, TRUE));
 
     if (ai)
         freeaddrinfo(ai);
-}
-static gpointer bg_connect_server(gpointer data) {
-    LoginUI *loginui = data;
-    open_server_socket(loginui);
-    return NULL;
 }
 void send_login(LoginUI *loginui) {
     printf("send_login()\n");
