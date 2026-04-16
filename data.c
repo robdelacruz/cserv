@@ -6,11 +6,35 @@
 #include <assert.h>
 #include <unistd.h>
 #include <errno.h>
+#include <crypt.h>
 
 #include "clib.h"
 #include "data.h"
 
 #define CRYPTSALT "salt1234567890"
+
+String password_hash(String phrase) {
+    if (phrase.len > CRYPT_MAX_PASSPHRASE_SIZE)
+        phrase.bs[CRYPT_MAX_PASSPHRASE_SIZE] = 0;
+
+    struct crypt_data data;
+    memset(&data, 0, sizeof(data));
+    char *pz = crypt_r(phrase.bs, CRYPTSALT, &data);
+    assert(pz != NULL);
+
+    return StringNew(data.output);
+}
+int password_verify(String phrase, String hash) {
+    if (phrase.len > CRYPT_MAX_PASSPHRASE_SIZE)
+        phrase.bs[CRYPT_MAX_PASSPHRASE_SIZE] = 0;
+
+    struct crypt_data data;
+    memset(&data, 0, sizeof(data));
+    char *pz = crypt_r(phrase.bs, CRYPTSALT, &data);
+    assert(pz != NULL);
+
+    return StringEquals(hash, data.output);
+}
 
 User UserNew(char *alias, char *pwdhash) {
     User u;
@@ -19,15 +43,23 @@ User UserNew(char *alias, char *pwdhash) {
     return u;
 }
 void UserSetPassword(User *u, char *pwd) {
-    StringAssign(&u->pwdhash, crypt(pwd, CRYPTSALT));
+    String spassword = StringNew(pwd);
+    String hash = password_hash(spassword);
+    StringAssign(&u->pwdhash, hash.bs);
+
+    StringFree(spassword);
+    StringFree(hash);
 }
 void UserFree(User u) {
     StringFree(u.alias);
     StringFree(u.pwdhash);
 }
 int UserValidatePwd(User u, char *pwd) {
-    char *pwdhash = crypt(pwd, CRYPTSALT);
-    return StringEquals(u.pwdhash, pwdhash);
+    String spassword = StringNew(pwd);
+    String hash = password_hash(spassword);
+    StringFree(spassword);
+
+    return StringEquals(u.pwdhash, hash.bs);
 }
 
 Users UsersNew(u32 cap) {

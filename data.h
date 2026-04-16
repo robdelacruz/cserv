@@ -24,6 +24,9 @@ typedef struct {
     Users users;
 } ServerData;
 
+String password_hash(String phrase);
+int password_verify(String phrase, String hash);
+
 User UserNew(char *alias, char *pwdhash);
 void UserSetPassword(User *u, char *pwd);
 void UserFree(User u);

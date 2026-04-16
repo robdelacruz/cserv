@@ -61,7 +61,7 @@ int main(int argc, char *argv[]) {
 
     // Try sending some message to server
     u8 msgno = REGISTERMSG;
-    NetPackLen(&hostctx.writebuf, "%b%s%s", msgno, "abcuser3", "abc123");
+    NetPackLen(&hostctx.writebuf, "%b%s%s", msgno, "robtwister", "password123");
     z = NetSend2(serverfd, &hostctx.writebuf, &selectctx);
 
     fd_set tmp_readfds, tmp_writefds;

@@ -54,7 +54,7 @@ void on_host_recv_msg(SelectCtx *ctx, HostCtx *hostctx, char *msgbytes, u16 len)
         MsgPack(&resp_msg, &hostctx->writebuf);
         MsgFree(&resp_msg);
         NetSend2(hostctx->fd, &hostctx->writebuf, ctx);
-        if (z != 0)
+        if (z == 0)
             ServerDataSave(serverdata);
     }
 
