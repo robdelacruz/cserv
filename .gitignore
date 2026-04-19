@@ -3,4 +3,5 @@ t2
 tclient
 tm
 *.swp
+*.o
 users.txt

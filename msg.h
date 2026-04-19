@@ -4,11 +4,9 @@
 #include "clib.h"
 #include "cnet.h"
 
-#define STATUSMSG 1
-#define REGISTERMSG 2
-#define LOGINMSG 3
-#define COMMANDMSG 4
-#define ALIASESMSG 5
+#define REGISTERMSG 10
+#define LOGINMSG 11
+#define LOGINRESPMSG 12
 
 #define MSGNO(bs) (*((u8 *)bs))
 
@@ -20,12 +18,6 @@ typedef struct {
     u8 msgno;
     char _tmp[255];
 } Msg;
-
-typedef struct {
-    u8 msgno;
-    u8 statusno;
-    String statustext;
-} StatusMsg;
 
 typedef struct {
     u8 msgno;
@@ -41,13 +33,10 @@ typedef struct {
 
 typedef struct {
     u8 msgno;
-    String command;
-} CommandMsg;
-
-typedef struct {
-    u8 msgno;
-    String aliases;
-} AliasesMsg;
+    String tok;
+    u8 retno;
+    String errorstr;
+} LoginRespMsg;
 
 void MsgFree(void *msg);
 void MsgPrint(void *msg);

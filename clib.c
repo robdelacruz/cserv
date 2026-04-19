@@ -389,3 +389,75 @@ void MapRemove(Map *m, char *k) {
     }
 }
 
+DBMap DBMapNew(u16 cap, void (*freeval)(KVItem)) {
+    DBMap m;
+    if (cap == 0)
+        cap = 32;
+    m.items = malloc(sizeof(KVItem)*cap);
+    memset(m.items, 0, sizeof(KVItem)*cap);
+    m.len = 0;
+    m.cap = cap;
+    m.freeval = freeval;
+    return m;
+}
+void DBMapFree(DBMap m) {
+    for (int i=0; i < m.len; i++)
+        m.freeval(m.items[i]);
+    free(m.items);
+}
+void DBMapClear(DBMap *m) {
+    for (int i=0; i < m->len; i++)
+        m->freeval(m->items[i]);
+    memset(m->items, 0, sizeof(KVItem)*m->len);
+    m->len = 0;
+}
+void DBMapSet(DBMap *m, char *k, DBVar v) {
+    for (int i=0; i < m->len; i++) {
+        KVItem item = m->items[i];
+        if (strcmp(item.key, k) == 0) {
+            m->freeval(item);
+            strncpy(item.key, k, sizeof(item.key));
+            item.key[sizeof(item.key)-1] = 0;
+            item.val = v;
+            return;
+        }
+    }
+
+    assert(m->len <= m->cap);
+    if (m->len == m->cap) {
+        m->items = realloc(m->items, sizeof(KVItem)*m->cap * 2);
+        memset(m->items + sizeof(KVItem)*m->cap, 0, sizeof(KVItem)*m->cap);
+        m->cap *= 2;
+    }
+    assert(m->len < m->cap);
+
+    KVItem item;
+    strncpy(item.key, k, sizeof(item.key));
+    item.key[sizeof(item.key)-1] = 0;
+    item.val = v;
+    m->items[m->len] = item;
+    m->len++;
+}
+DBVar *DBMapGet(DBMap m, char *k) {
+    for (int i=0; i < m.len; i++) {
+        KVItem item = m.items[i];
+        if (strcmp(item.key, k) == 0)
+            return &m.items[i].val;
+    }
+    return NULL;
+}
+void DBMapRemove(DBMap *m, char *k) {
+    for (int i=0; i < m->len; i++) {
+        KVItem item = m->items[i];
+        if (strcmp(item.key, k) == 0) {
+            m->freeval(item);
+            // Move last item to the spot where the deleted item is.
+            if (m->len > 1)
+                m->items[i] = m->items[m->len-1];
+            memset(&m->items[m->len-1], 0, sizeof(KVItem));
+            m->len--;
+            return;
+        }
+    }
+}
+

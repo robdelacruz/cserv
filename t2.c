@@ -62,25 +62,36 @@ void testuser() {
 
 }
 
-void register_user(ServerData *sd, char *alias, char *pwd) {
-    User u = UserNew(alias, "");
-    UserSetPassword(&u, pwd);
-    UsersAppend(&sd->users, u);
+void freeval(KVItem item) {
 }
 
 int main(int argc, char *argv[]) {
-    ServerData sd = ServerDataNew();
-    register_user(&sd, "rob", "password123");
-    register_user(&sd, "robtwister", "twister123");
-    register_user(&sd, "abcuser", "abcpassword");
+    DBVar v;
+    DBMap m = DBMapNew(0, freeval);
+    DBMapClear(&m);
 
-    for (int i=0; i < sd.users.len; i++) {
-        User u = sd.users.items[i];
-        printuser(u);
-    }
+    v.n = 123;
+    DBMapSet(&m, "amt", v);
 
-    ServerDataSave(sd);
+    v.f = 1000.23;
+    DBMapSet(&m, "price", v);
 
-    ServerDataFree(sd);
+    v.s = "password123";
+    DBMapSet(&m, "password", v);
+
+    DBVar *amt, *price, *password, *none;
+    amt = DBMapGet(m, "amt");
+    price = DBMapGet(m, "price");
+    password = DBMapGet(m, "password");
+    none = DBMapGet(m, "abc");
+
+    assert(amt != NULL);
+    assert(price != NULL);
+    assert(password != NULL);
+    assert(none == NULL);
+
+    printf("amt: %d price: %.2f password: '%s'\n", amt->n, price->f, password->s);
+
+    DBMapFree(m);
     return 0;
 }

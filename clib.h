@@ -44,6 +44,26 @@ typedef struct {
     i8 isfreevals;
 } Map;
 
+typedef union _DBVar {
+    i32 n32;
+    i64 n64;
+    int n;
+    double f;
+    char *s;
+} DBVar;
+
+typedef struct {
+    char key[32];
+    DBVar val;
+} KVItem;
+
+typedef struct {
+    KVItem *items;
+    u16 len;
+    u16 cap;
+    void (*freeval)(KVItem);
+} DBMap;
+
 void panic(char *s);
 
 Arena ArenaNew(u32 cap);
@@ -85,5 +105,12 @@ void MapClear(Map *m);
 void MapSet(Map *m, char *k, void *v);
 void *MapGet(Map m, char *k);
 void MapRemove(Map *m, char *k);
+
+DBMap DBMapNew(u16 cap, void (*freeval)(KVItem));
+void DBMapFree(DBMap m);
+void DBMapClear(DBMap *m);
+void DBMapSet(DBMap *m, char *k, DBVar v);
+DBVar *DBMapGet(DBMap m, char *k);
+void DBMapRemove(DBMap *m, char *k);
 
 #endif

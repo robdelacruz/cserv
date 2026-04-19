@@ -19,8 +19,6 @@
 #include "msg.h"
 #include "data.h"
 
-ServerData serverdata;
-
 void sigint(int sig) {
     printf("\nTerminating Server.\n");
     exit(0);
@@ -37,25 +35,14 @@ void on_host_recv_msg(SelectCtx *ctx, HostCtx *hostctx, char *msgbytes, u16 len)
     if (msgno == 0) {
         return;
     }
-    if (msgno == COMMANDMSG) {
-        CommandMsg *p = (CommandMsg *) &msg;
-        if (StringEquals(p->command, "list users")) {
-            // Return aliases response
-            AliasesMsg resp_msg = {ALIASESMSG, StringNew("admin;robtwister;user1")};
-            MsgPack(&resp_msg, &hostctx->writebuf);
-            MsgFree(&resp_msg);
-            NetSend2(hostctx->fd, &hostctx->writebuf, ctx);
-        }
-    } else if (msgno == REGISTERMSG) {
-        RegisterMsg *p = (RegisterMsg *) &msg;
-        z = RegisterUser(&serverdata, p->alias.bs, p->pwd.bs);
-        // Return status response
-        StatusMsg resp_msg = {STATUSMSG, z, StringNew(server_strerror(z))};
-        MsgPack(&resp_msg, &hostctx->writebuf);
-        MsgFree(&resp_msg);
-        NetSend2(hostctx->fd, &hostctx->writebuf, ctx);
-        if (z == 0)
-            ServerDataSave(serverdata);
+    if (msgno == REGISTERMSG) {
+//        RegisterMsg *p = (RegisterMsg *) &msg;
+//        z = RegisterUser(&serverdata, p->alias.bs, p->pwd.bs);
+        // todo: Return response
+//        StatusMsg resp_msg = {STATUSMSG, z, StringNew(server_strerror(z))};
+//        MsgPack(&resp_msg, &hostctx->writebuf);
+//        MsgFree(&resp_msg);
+//        NetSend2(hostctx->fd, &hostctx->writebuf, ctx);
     }
 
     MsgPrint(&msg);
@@ -76,9 +63,6 @@ int main(int argc, char *argv[]) {
         port = argv[2];
 
     signal(SIGINT, sigint);
-
-    serverdata = ServerDataNew();
-    ServerDataLoad(&serverdata);
 
     int backlog = 50;
     struct sockaddr sa;
