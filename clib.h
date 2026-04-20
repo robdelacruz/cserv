@@ -64,6 +64,16 @@ typedef struct {
     void (*freeval)(KVItem);
 } DBMap;
 
+typedef void (*FreeFunc)(void *);
+
+typedef struct {
+    void *items;
+    int itemsize;
+    u16 len;
+    u16 cap;
+    FreeFunc freeitem;
+} Array;
+
 void panic(char *s);
 
 Arena ArenaNew(u32 cap);
@@ -112,5 +122,12 @@ void DBMapClear(DBMap *m);
 void DBMapSet(DBMap *m, char *k, DBVar v);
 DBVar *DBMapGet(DBMap m, char *k);
 void DBMapRemove(DBMap *m, char *k);
+
+Array ArrayNew(u16 cap, int itemsize, FreeFunc freeitem);
+void ArrayFree(Array a);
+void ArrayClear(Array *a);
+void ArrayAppend(Array *a, void *item);
+void ArrayRemove(Array *a, int index);
+void *ArrayItem(Array a, int index);
 
 #endif

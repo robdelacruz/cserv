@@ -461,3 +461,61 @@ void DBMapRemove(DBMap *m, char *k) {
     }
 }
 
+static void _freeitem(void *p) {
+}
+static void *array_item_ptr(Array *a, int index) {
+    return a->items + index*a->itemsize;
+}
+
+Array ArrayNew(u16 cap, int itemsize, FreeFunc freeitem) {
+    Array a;
+    if (cap == 0)
+        cap = 32;
+    if (freeitem == NULL)
+        freeitem = _freeitem;
+
+    a.items = malloc(itemsize*cap);
+    a.itemsize = itemsize;
+    a.len = 0;
+    a.cap = cap;
+    a.freeitem = freeitem;
+    return a;
+}
+void ArrayFree(Array a) {
+    for (int i=0; i < a.len; i++)
+        a.freeitem(array_item_ptr(&a, i));
+    free(a.items);
+}
+void ArrayClear(Array *a) {
+    memset(a->items, 0, a->itemsize*a->len);
+    a->len = 0;
+}
+void ArrayAppend(Array *a, void *item) {
+    assert(a->len <= a->cap);
+
+    // Double the capacity if more space needed
+    if (a->len == a->cap) {
+        a->items = realloc(a->items, a->itemsize*a->cap*2);
+        a->cap *= 2;
+    }
+    assert(a->len < a->cap);
+
+    memcpy(array_item_ptr(a, a->len), item, a->itemsize);
+    a->len++;
+}
+void ArrayRemove(Array *a, int index) {
+    if (index < 0  || index >= a->len)
+        return;
+
+    a->freeitem(a->items + index*a->itemsize);
+    if (a->len > 1)
+        memmove(array_item_ptr(a, index), array_item_ptr(a, index+1), (a->len - index) * a->itemsize);
+    memset(array_item_ptr(a, a->len-1), 0, a->itemsize);
+    a->len--;
+}
+void *ArrayItem(Array a, int index) {
+    assert(index >= 0 && index < a.len);
+    return array_item_ptr(&a, index);
+}
+
+

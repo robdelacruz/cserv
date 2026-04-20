@@ -65,7 +65,7 @@ void testuser() {
 void freeval(KVItem item) {
 }
 
-int main(int argc, char *argv[]) {
+void testdbvar() {
     DBVar v;
     DBMap m = DBMapNew(0, freeval);
     DBMapClear(&m);
@@ -93,5 +93,39 @@ int main(int argc, char *argv[]) {
     printf("amt: %d price: %.2f password: '%s'\n", amt->n, price->f, password->s);
 
     DBMapFree(m);
+}
+
+void print_hostctxs(Array a) {
+    for (int i=0; i < a.len; i++) {
+        HostCtx *hc = ArrayItem(a, i);
+        printf("[%d] '%s': %d\n", i, hc->alias.bs, hc->fd);
+    }
+}
+
+int main(int argc, char *argv[]) {
+    Array hostctxs = ArrayNew(0, sizeof(HostCtx), (FreeFunc) HostCtxFree);
+    ArrayClear(&hostctxs);
+
+    HostCtx hc = HostCtxNew(10);
+    hc.alias = StringNew("host 10");
+    ArrayAppend(&hostctxs, &hc);
+    hc = HostCtxNew(11);
+    hc.alias = StringNew("host 11");
+    ArrayAppend(&hostctxs, &hc);
+    hc = HostCtxNew(12);
+    hc.alias = StringNew("host 12");
+    ArrayAppend(&hostctxs, &hc);
+    print_hostctxs(hostctxs);
+    printf("\n");
+
+    ArrayRemove(&hostctxs, 4);
+    ArrayRemove(&hostctxs, -1);
+    ArrayRemove(&hostctxs, 10);
+
+    ArrayRemove(&hostctxs, 0);
+    ArrayRemove(&hostctxs, 1);
+    print_hostctxs(hostctxs);
+
+    ArrayFree(hostctxs);
     return 0;
 }
