@@ -13,17 +13,30 @@ void panic(char *s) {
     abort();
 }
 
+void *malloc0(size_t size) {
+    void *p = malloc(size);
+    memset(p, 0, size);
+    return p;
+}
+void *realloc0(void *ptr, size_t oldsize, size_t newsize) {
+    assert(newsize > oldsize);
+    void *p = realloc(ptr, newsize);
+    memset(p + oldsize, 0, newsize - oldsize);
+    return p;
+}
+
 Arena ArenaNew(u32 cap) {
     Arena a;
     if (cap == 0)
         cap = 1024;
-    a.bs = malloc(cap);
+    a.bs = malloc0(cap);
     a.pos = 0;
     a.cap = cap;
     return a;
 }
-void ArenaFree(Arena a) {
-    free(a.bs);
+void ArenaFree(Arena *a) {
+    free(a->bs);
+    memset(a, 0, sizeof(Arena));
 }
 void ArenaReset(Arena *a) {
     a->pos = 0;
@@ -59,7 +72,7 @@ void ArenaGet(Arena *a, void *dest, u32 offset, u32 size) {
 String StringNew0() {
     String str;
     str.len = 0;
-    str.bs = (char *) malloc(1);
+    str.bs = (char *) malloc0(1);
     str.bs[0] = 0;
     return str;
 }
@@ -79,8 +92,9 @@ String StringNewFromBytes(char *bs, int bslen) {
     str.len = bslen;
     return str;
 }
-void StringFree(String str) {
-    free(str.bs);
+void StringFree(String *str) {
+    free(str->bs);
+    memset(str, 0, sizeof(String));
 }
 String StringDup(String src) {
     String str;
@@ -116,15 +130,15 @@ void StringAppend(String *str, char *s) {
     str->bs[str->len] = 0;
 }
 void StringAssign(String *str, char *s) {
-    StringFree(*str);
+    StringFree(str);
     *str = StringNew(s);
 }
 void StringAssignFromBytes(String *str, char *bs, int bslen) {
-    StringFree(*str);
+    StringFree(str);
     *str = StringNewFromBytes(bs, bslen);
 }
 void StringAssignFormat(String *str, const char *fmt, ...) {
-    StringFree(*str);
+    StringFree(str);
     va_list args;
 
     va_start(args, fmt);
@@ -189,41 +203,9 @@ void StringTrim(String str) {
     str.len = newlen;
 }
 
-StringList StringListNew(u16 cap) {
-    StringList sl;
-    if (cap == 0)
-        cap = 32;
-    sl.items = (String *) malloc(sizeof(String)*cap);
-    memset(sl.items, 0, sizeof(String)*cap);
-    sl.len = 0;
-    sl.cap = cap;
-    sl.isfreeitems = 0;
-    return sl;
-}
-void StringListFree(StringList sl) {
-    if (sl.isfreeitems) {
-        for (int i=0; i < sl.len; i++)
-            StringFree(sl.items[i]);
-    }
-    free(sl.items);
-}
-void StringListAppend(StringList *sl, String str) {
-    assert(sl->len <= sl->cap);
-
-    // Double the capacity if more space needed.
-    if (sl->len == sl->cap) {
-        sl->items = (String *) realloc(sl->items, sizeof(String)*sl->cap * 2);
-        memset(sl->items + sizeof(String)*sl->cap, 0, sizeof(String)*sl->cap);
-        sl->cap *= 2;
-    }
-    assert(sl->len < sl->cap);
-
-    sl->items[sl->len] = str;
-    sl->len++;
-}
-// Returns tokens as stringlist.
-// Each string in returned stringlist should be freed with StringFree()
-StringList StringSplit(String str, char *sep) {
+// Returns array of tokens.
+// Returned array should be freed with ArrayFree().
+Array StringSplit(String str, char *sep) {
     int itokstart=0;
     int toklen=0;
     int sep_len = strlen(sep);
@@ -239,8 +221,7 @@ StringList StringSplit(String str, char *sep) {
         itokstart = isep + sep_len;
     }
 
-    StringList sl = StringListNew(ntoks);
-    sl.isfreeitems = 1;
+    Array toks = ArrayNew(ntoks, sizeof(String), (FreeFunc) StringFree);
     itokstart = 0;
     while (1) {
         int isep = StringSearch(str, itokstart, sep);
@@ -250,28 +231,28 @@ StringList StringSplit(String str, char *sep) {
             toklen = isep - itokstart;
 
         String tok = StringNewFromBytes(str.bs+itokstart, toklen);
-        StringListAppend(&sl, tok);
+        ArrayAppend(&toks, &tok);
 
         if (isep == -1)
             break;
         itokstart = isep + sep_len;
     }
 
-    return sl;
+    return toks;
 }
 
 Buffer BufferNew(u32 cap) {
     Buffer buf;
     if (cap == 0)
         cap = 1024;
-    buf.bs = (char *) malloc(cap);
-    memset(buf.bs, 0, cap);
+    buf.bs = (char *) malloc0(cap);
     buf.len = 0;
     buf.cap = cap;
     return buf;
 }
-void BufferFree(Buffer buf) {
-    free(buf.bs);
+void BufferFree(Buffer *buf) {
+    free(buf->bs);
+    memset(buf, 0, sizeof(Buffer));
 }
 void BufferClear(Buffer *buf) {
     memset(buf->bs, 0, buf->len);
@@ -285,10 +266,8 @@ void BufferAppend(Buffer *buf, char *bs, u32 bslen) {
     while (bslen > newcap - buf->len)
         newcap *= 2;
     if (newcap > buf->cap) {
-        buf->bs = (char *) realloc(buf->bs, newcap);
-        memset(buf->bs + buf->cap, 0, newcap - buf->cap);
+        buf->bs = (char *) realloc0(buf->bs, buf->cap, newcap);
         buf->cap = newcap;
-        printf("newcap: %ld\n", buf->cap);
     }
     assert(bslen <= buf->cap - buf->len);
 
@@ -316,20 +295,20 @@ Map MapNew(u16 cap) {
     if (cap == 0)
         cap = 32;
     cap*=2;
-    m.items = (void **) malloc(sizeof(void *)*cap);
-    memset(m.items, 0, sizeof(void *)*cap);
+    m.items = (void **) malloc0(sizeof(void *)*cap);
     m.len = 0;
     m.cap = cap;
     m.isfreevals = 0;
     return m;
 }
-void MapFree(Map m) {
-    for (int i=0; i < m.len; i+=2) {
-        free(m.items[i]);
-        if (m.isfreevals)
-            free(m.items[i+1]);
+void MapFree(Map *m) {
+    for (int i=0; i < m->len; i+=2) {
+        free(m->items[i]);
+        if (m->isfreevals)
+            free(m->items[i+1]);
     }
-    free(m.items);
+    free(m->items);
+    memset(m, 0, sizeof(Map));
 }
 void MapClear(Map *m) {
     for (int i=0; i < m->len; i+=2) {
@@ -355,8 +334,7 @@ void MapSet(Map *m, char *k, void *v) {
 
     // Double the capacity if more space needed.
     if (m->len == m->cap) {
-        m->items = (void **) realloc(m->items, sizeof(void *)*m->cap * 2);
-        memset(m->items + sizeof(void *)+m->cap, 0, sizeof(void *)+m->cap);
+        m->items = (void **) realloc0(m->items, sizeof(void *)*m->cap, sizeof(void *)*m->cap * 2);
         m->cap *= 2;
     }
     assert(m->len < m->cap);
@@ -393,17 +371,17 @@ DBMap DBMapNew(u16 cap, void (*freeval)(KVItem)) {
     DBMap m;
     if (cap == 0)
         cap = 32;
-    m.items = malloc(sizeof(KVItem)*cap);
-    memset(m.items, 0, sizeof(KVItem)*cap);
+    m.items = malloc0(sizeof(KVItem)*cap);
     m.len = 0;
     m.cap = cap;
     m.freeval = freeval;
     return m;
 }
-void DBMapFree(DBMap m) {
-    for (int i=0; i < m.len; i++)
-        m.freeval(m.items[i]);
-    free(m.items);
+void DBMapFree(DBMap *m) {
+    for (int i=0; i < m->len; i++)
+        m->freeval(m->items[i]);
+    free(m->items);
+    memset(m, 0, sizeof(DBMap));
 }
 void DBMapClear(DBMap *m) {
     for (int i=0; i < m->len; i++)
@@ -425,8 +403,7 @@ void DBMapSet(DBMap *m, char *k, DBVar v) {
 
     assert(m->len <= m->cap);
     if (m->len == m->cap) {
-        m->items = realloc(m->items, sizeof(KVItem)*m->cap * 2);
-        memset(m->items + sizeof(KVItem)*m->cap, 0, sizeof(KVItem)*m->cap);
+        m->items = realloc0(m->items, sizeof(KVItem)*m->cap, sizeof(KVItem)*m->cap * 2);
         m->cap *= 2;
     }
     assert(m->len < m->cap);
@@ -474,17 +451,18 @@ Array ArrayNew(u16 cap, int itemsize, FreeFunc freeitem) {
     if (freeitem == NULL)
         freeitem = _freeitem;
 
-    a.items = malloc(itemsize*cap);
+    a.items = malloc0(itemsize*cap);
     a.itemsize = itemsize;
     a.len = 0;
     a.cap = cap;
     a.freeitem = freeitem;
     return a;
 }
-void ArrayFree(Array a) {
-    for (int i=0; i < a.len; i++)
-        a.freeitem(array_item_ptr(&a, i));
-    free(a.items);
+void ArrayFree(Array *a) {
+    for (int i=0; i < a->len; i++)
+        a->freeitem(array_item_ptr(a, i));
+    free(a->items);
+    memset(a, 0, sizeof(Array));
 }
 void ArrayClear(Array *a) {
     memset(a->items, 0, a->itemsize*a->len);
@@ -495,7 +473,7 @@ void ArrayAppend(Array *a, void *item) {
 
     // Double the capacity if more space needed
     if (a->len == a->cap) {
-        a->items = realloc(a->items, a->itemsize*a->cap*2);
+        a->items = realloc0(a->items, a->itemsize*a->cap, a->itemsize*a->cap*2);
         a->cap *= 2;
     }
     assert(a->len < a->cap);

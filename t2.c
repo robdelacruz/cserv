@@ -36,7 +36,7 @@ void maptest() {
 
     MapClear(&m);
     printmap(m);
-    MapFree(m);
+    MapFree(&m);
 }
 
 void printuser(User u) {
@@ -92,7 +92,7 @@ void testdbvar() {
 
     printf("amt: %d price: %.2f password: '%s'\n", amt->n, price->f, password->s);
 
-    DBMapFree(m);
+    DBMapFree(&m);
 }
 
 #define HOSTCTXS(v) ((HostCtx *) v)
@@ -105,7 +105,7 @@ void print_hostctxs(Array a) {
     }
 }
 
-int main(int argc, char *argv[]) {
+void testarray() {
     Array hostctxs = ArrayNew(0, sizeof(HostCtx), (FreeFunc) HostCtxFree);
     ArrayClear(&hostctxs);
 
@@ -129,6 +129,21 @@ int main(int argc, char *argv[]) {
     ArrayRemove(&hostctxs, 1);
     print_hostctxs(hostctxs);
 
-    ArrayFree(hostctxs);
+    ArrayFree(&hostctxs);
+
+
+}
+
+int main(int argc, char *argv[]) {
+    String s = StringNew("abc; def; ghi;  ");
+    Array toks = StringSplit(s, "; ");
+
+    String *ss = (String *) toks.items;
+    for (int i=0; i < toks.len; i++)
+        printf("[%d] '%s'\n", i, ss[i].bs);
+    printf("\n");
+
+    ArrayFree(&toks);
+
     return 0;
 }

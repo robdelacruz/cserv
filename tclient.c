@@ -22,13 +22,27 @@ void sigint(int sig) {
 }
 
 void on_host_recv_msg(SelectCtx *selectctx, HostCtx *hostctx, char *msgbytes, u16 len) {
-    Msg msg;
-    MsgUnpack(&msg, msgbytes, len);
+    int z;
     u8 msgno = MSGNO(msgbytes);
+    printf("on_host_recv_msg() msgno: %d\n", msgno);
     if (msgno == 0)
         return;
-    MsgPrint(&msg);
-    MsgFree(&msg);
+
+    // Skip over msgno (first byte)
+    msgbytes++;
+    len--;
+
+    if (msgno == LOGINRESPMSG) {
+        String tok = StringNew0();
+        u8 retno;
+        String errorstr = StringNew0();
+
+        NetUnpack(msgbytes, len, "%s%b%s", &tok, &retno, &errorstr);
+        printf("** LOGINRESPMSG tok: '%.*s' retno: %d errorstr: '%.*s' **\n", tok.len, tok.bs, retno, errorstr.len, errorstr.bs);
+
+        StringFree(&tok);
+        StringFree(&errorstr);
+    }
 }
 void on_host_eof(SelectCtx *selectctx, HostCtx *hostctx) {
     fprintf(stderr, "Server %d end transmission\n", hostctx->fd);
@@ -54,7 +68,7 @@ int main(int argc, char *argv[]) {
     String ipaddr = StringNew("");
     GetTextIPAddress(&sa, &ipaddr);
     printf("Connected to %.*s port %s...\n", ipaddr.len, ipaddr.bs, serverport);
-    StringFree(ipaddr);
+    StringFree(&ipaddr);
 
     HostCtx hostctx = HostCtxNew(serverfd);
     SelectCtx selectctx = SelectCtxNew(serverfd);

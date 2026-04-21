@@ -41,6 +41,6 @@ typedef struct {
 void MsgFree(void *msg);
 void MsgPrint(void *msg);
 void MsgPack(void *msg, Buffer *buf);
-void MsgUnpack(Msg *msg, char *msgbytes, u16 len);
+void MsgUnpack(char *msgbytes, u16 len, Msg *msg);
 
 #endif

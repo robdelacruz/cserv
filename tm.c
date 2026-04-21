@@ -57,21 +57,14 @@ void set_statusbar_message(GtkStatusbar *statusbar, guint ctxid, char *msg) {
     gtk_statusbar_push(statusbar, ctxid, msg);
 }
 void set_statusbar(GtkStatusbar *statusbar, const char *fmt, ...) {
-    String str;
+    static char status[512];
     va_list args;
 
     va_start(args, fmt);
-    str.len = vsnprintf(NULL, 0, fmt, args);
-    str.bs = (char *) malloc(str.len+1);
+    vsnprintf(status, sizeof(status), fmt, args);
     va_end(args);
 
-    va_start(args, fmt);
-    vsnprintf(str.bs, str.len+1, fmt, args);
-    va_end(args);
-
-    set_statusbar_message(statusbar, 0, str.bs);
-
-    StringFree(str);
+    set_statusbar_message(statusbar, 0, status);
 }
 gpointer new_data_args(int n, ...) {
     gpointer *data = malloc(sizeof(gpointer)*n);

@@ -26,13 +26,6 @@ typedef struct {
 } String;
 
 typedef struct {
-    String *items;
-    u16 len;
-    u16 cap;
-    i8 isfreeitems;
-} StringList;
-
-typedef struct {
     char *bs;
     u32 len;
     u32 cap;
@@ -76,9 +69,11 @@ typedef struct {
 } Array;
 
 void panic(char *s);
+void *malloc0(size_t size);
+void *realloc0(void *ptr, size_t oldsize, size_t newsize);
 
 Arena ArenaNew(u32 cap);
-void ArenaFree(Arena a);
+void ArenaFree(Arena *a);
 void ArenaReset(Arena *a);
 void *ArenaAlloc(Arena *a, u32 size);
 void *ArenaPushBytes(Arena *a, void *src, u32 size);
@@ -87,7 +82,7 @@ void ArenaGet(Arena *a, void *dest, u32 offset, u32 size);
 String StringNew0();
 String StringNew(char *s);
 String StringNewFromBytes(char *bs, int bslen);
-void StringFree(String str);
+void StringFree(String *str);
 String StringDup(String src);
 String StringFormat(const char *fmt, ...);
 void StringAppend(String *str, char *s);
@@ -96,36 +91,32 @@ void StringAssignFromBytes(String *str, char *bs, int bslen);
 void StringAssignFormat(String *str, const char *fmt, ...);
 int StringSearch(String str, int startpos, char *searchstr);
 int StringEquals(String str, char *s);
-StringList StringSplit(String str, char *sep);
+Array StringSplit(String str, char *sep);
 void StringTrim(String str);
 
-StringList StringListNew(u16 cap);
-void StringListFree(StringList sl);
-void StringListAppend(StringList *sl, String str);
-
 Buffer BufferNew(u32 cap);
-void BufferFree(Buffer buf);
+void BufferFree(Buffer *buf);
 void BufferClear(Buffer *buf);
 void BufferAppend(Buffer *buf, char *bs, u32 bslen);
 void BufferAppendChar(Buffer *buf, char c);
 void BufferShift(Buffer *buf, int n);
 
 Map MapNew(u16 cap);
-void MapFree(Map m);
+void MapFree(Map *m);
 void MapClear(Map *m);
 void MapSet(Map *m, char *k, void *v);
 void *MapGet(Map m, char *k);
 void MapRemove(Map *m, char *k);
 
 DBMap DBMapNew(u16 cap, void (*freeval)(KVItem));
-void DBMapFree(DBMap m);
+void DBMapFree(DBMap *m);
 void DBMapClear(DBMap *m);
 void DBMapSet(DBMap *m, char *k, DBVar v);
 DBVar *DBMapGet(DBMap m, char *k);
 void DBMapRemove(DBMap *m, char *k);
 
 Array ArrayNew(u16 cap, int itemsize, FreeFunc freeitem);
-void ArrayFree(Array a);
+void ArrayFree(Array *a);
 void ArrayClear(Array *a);
 void ArrayAppend(Array *a, void *item);
 void ArrayRemove(Array *a, int index);

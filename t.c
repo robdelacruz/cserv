@@ -5,6 +5,7 @@
 #include <errno.h>
 #include <assert.h>
 #include <signal.h>
+#include <crypt.h>
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -17,45 +18,23 @@
 #include "clib.h"
 #include "cnet.h"
 #include "msg.h"
-#include "data.h"
 
 HostCtx *FindHostCtxByFd(Array a, int fd);
 HostCtx *FindHostCtxByAlias(Array a, char *alias);
 void RemoveHostCtxByFd(Array *a, int fd);
 
+int RegisterUser(String alias, String pwd);
+String password_hash(String phrase);
+int password_verify(String phrase, String hash);
+
+void on_host_connected(SelectCtx *ctx, HostCtx *hostctx);
+void on_host_recv_msg(SelectCtx *ctx, HostCtx *hostctx, char *msgbytes, u16 len);
+void on_host_eof(SelectCtx *ctx, HostCtx *hostctx);
+
 void sigint(int sig) {
     printf("\nTerminating Server.\n");
     exit(0);
 }
-
-void on_host_connected(SelectCtx *ctx, HostCtx *hostctx) {
-    fprintf(stderr, "Connected to client %d\n", hostctx->fd);
-}
-void on_host_recv_msg(SelectCtx *ctx, HostCtx *hostctx, char *msgbytes, u16 len) {
-    int z;
-    Msg msg;
-    MsgUnpack(&msg, msgbytes, len);
-    u8 msgno = MSGNO(&msg);
-    if (msgno == 0) {
-        return;
-    }
-    if (msgno == REGISTERMSG) {
-//        RegisterMsg *p = (RegisterMsg *) &msg;
-//        z = RegisterUser(&serverdata, p->alias.bs, p->pwd.bs);
-        // todo: Return response
-//        StatusMsg resp_msg = {STATUSMSG, z, StringNew(server_strerror(z))};
-//        MsgPack(&resp_msg, &hostctx->writebuf);
-//        MsgFree(&resp_msg);
-//        NetSend2(hostctx->fd, &hostctx->writebuf, ctx);
-    }
-
-    MsgPrint(&msg);
-    MsgFree(&msg);
-}
-void on_host_eof(SelectCtx *ctx, HostCtx *hostctx) {
-    fprintf(stderr, "Client %d end transmission\n", hostctx->fd);
-}
-
 
 int main(int argc, char *argv[]) {
     int z;
@@ -77,7 +56,7 @@ int main(int argc, char *argv[]) {
     String ipaddr = StringNew("");
     GetTextIPAddress(&sa, &ipaddr);
     printf("Listening on %.*s port %s...\n", ipaddr.len, ipaddr.bs, port);
-    StringFree(ipaddr);
+    StringFree(&ipaddr);
 
     SelectCtx selectctx = SelectCtxNew(s0);
 
@@ -198,6 +177,47 @@ int main(int argc, char *argv[]) {
     return 0;
 }
 
+void on_host_connected(SelectCtx *ctx, HostCtx *hostctx) {
+    fprintf(stderr, "Connected to client %d\n", hostctx->fd);
+}
+void on_host_recv_msg(SelectCtx *ctx, HostCtx *hostctx, char *msgbytes, u16 len) {
+    int z;
+    u8 msgno = MSGNO(msgbytes);
+    if (msgno == 0)
+        return;
+
+    // Skip over msgno (first byte)
+    msgbytes++;
+    len--;
+
+    if (msgno == REGISTERMSG) {
+        String alias = StringNew0();
+        String pwd = StringNew0();
+        NetUnpack(msgbytes, len, "%s%s", &alias, &pwd);
+        printf("** REGISTERMSG alias: '%.*s' pwd: '%.*s' **\n", alias.len, alias.bs, pwd.len, pwd.bs);
+
+        z = RegisterUser(alias, pwd);
+        String zstatus = StringNew("OK");
+
+        // Generate token from alias + pwd
+        String s = StringDup(alias);
+        StringAppend(&s, pwd.bs);
+        String tok = password_hash(s);
+
+        NetPackLen(&hostctx->writebuf, "%b%s%b%s", LOGINRESPMSG, tok.bs, z, zstatus.bs);
+        NetSend2(hostctx->fd, &hostctx->writebuf, ctx);
+
+        StringFree(&alias);
+        StringFree(&pwd);
+        StringFree(&s);
+        StringFree(&tok);
+        StringFree(&zstatus);
+    }
+}
+void on_host_eof(SelectCtx *ctx, HostCtx *hostctx) {
+    fprintf(stderr, "Client %d end transmission\n", hostctx->fd);
+}
+
 HostCtx *FindHostCtxByFd(Array a, int fd) {
     HostCtx *hostctxs = (HostCtx *) a.items;
     for (int i=0; i < a.len; i++) {
@@ -222,5 +242,34 @@ void RemoveHostCtxByFd(Array *a, int fd) {
             return;
         }
     }
+}
+
+#define CRYPTSALT "salt1234567890"
+
+String password_hash(String phrase) {
+    if (phrase.len > CRYPT_MAX_PASSPHRASE_SIZE)
+        phrase.bs[CRYPT_MAX_PASSPHRASE_SIZE] = 0;
+
+    struct crypt_data data;
+    memset(&data, 0, sizeof(data));
+    char *pz = crypt_r(phrase.bs, CRYPTSALT, &data);
+    assert(pz != NULL);
+
+    return StringNew(data.output);
+}
+int password_verify(String phrase, String hash) {
+    if (phrase.len > CRYPT_MAX_PASSPHRASE_SIZE)
+        phrase.bs[CRYPT_MAX_PASSPHRASE_SIZE] = 0;
+
+    struct crypt_data data;
+    memset(&data, 0, sizeof(data));
+    char *pz = crypt_r(phrase.bs, CRYPTSALT, &data);
+    assert(pz != NULL);
+
+    return StringEquals(hash, data.output);
+}
+
+int RegisterUser(String alias, String pwd) {
+    return 0;
 }
 

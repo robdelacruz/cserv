@@ -14,10 +14,10 @@ sqlite3.o: sqlite3.c
 t: $(SOURCE)
 	gcc $(CFLAGS) -o $@ $^ $(LIBS)
 
-t2: t2.c clib.c cnet.c data.c
+t2: t2.c clib.c cnet.c
 	gcc -o $@ $^ $(LIBS)
 
-tclient: tclient.c msg.c clib.c cnet.c data.c
+tclient: tclient.c msg.c clib.c cnet.c
 	gcc -o $@ $^ $(LIBS)
 
 tm: tm.c msg.c clib.c cnet.c

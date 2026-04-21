@@ -8,12 +8,12 @@ void MsgFree(void *msg) {
     u8 msgno = MSGNO(msg);
     if (msgno == REGISTERMSG) {
         RegisterMsg *p = msg;
-        StringFree(p->alias);
-        StringFree(p->pwd);
+        StringFree(&p->alias);
+        StringFree(&p->pwd);
     } else if (msgno == LOGINMSG) {
         LoginMsg *p = msg;
-        StringFree(p->alias);
-        StringFree(p->pwd);
+        StringFree(&p->alias);
+        StringFree(&p->pwd);
     } else {
         fprintf(stderr, "MsgFree(): Unrecognized msgno %d\n", msgno);
     }
@@ -43,7 +43,7 @@ void MsgPack(void *msg, Buffer *buf) {
     }
 }
 
-void MsgUnpack(Msg *msg, char *msgbytes, u16 len) {
+void MsgUnpack(char *msgbytes, u16 len, Msg *msg) {
     u8 msgno = MSGNO(msgbytes);
     if (msgno == REGISTERMSG) {
         RegisterMsg *p = (RegisterMsg *) msg;

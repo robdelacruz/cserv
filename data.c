@@ -47,17 +47,17 @@ void UserSetPassword(User *u, char *pwd) {
     String hash = password_hash(spassword);
     StringAssign(&u->pwdhash, hash.bs);
 
-    StringFree(spassword);
-    StringFree(hash);
+    StringFree(&spassword);
+    StringFree(&hash);
 }
 void UserFree(User u) {
-    StringFree(u.alias);
-    StringFree(u.pwdhash);
+    StringFree(&u.alias);
+    StringFree(&u.pwdhash);
 }
 int UserValidatePwd(User u, char *pwd) {
     String spassword = StringNew(pwd);
     String hash = password_hash(spassword);
-    StringFree(spassword);
+    StringFree(&spassword);
 
     return StringEquals(u.pwdhash, hash.bs);
 }
@@ -157,14 +157,14 @@ void ServerDataLoad(ServerData *sd) {
             break;
         StringAssign(&sline, line);
         StringTrim(sline);
-        StringList ss = StringSplit(sline, ";");
-        ss.isfreeitems = 1;
+        Array ss = StringSplit(sline, ";");
 
+        String *sitems = (String *) ss.items;
         if (ss.len >= 2) {
-            User u = UserNew(ss.items[0].bs, ss.items[1].bs);
+            User u = UserNew(sitems[0].bs, sitems[1].bs);
             UsersAppend(&sd->users, u);
         }
-        StringListFree(ss);
+        ArrayFree(&ss);
     }
     fclose(f);
 }

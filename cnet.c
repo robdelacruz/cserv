@@ -52,7 +52,7 @@ SelectCtx SelectCtxNew(int serverfd) {
 void SelectCtxFree(SelectCtx *selctx) {
     FD_ZERO(&selctx->readfds);
     FD_ZERO(&selctx->writefds);
-    ArrayFree(selctx->hostctxs);
+    ArrayFree(&selctx->hostctxs);
 }
 
 int CreateNonBlockingSocket(char *host, char *port, struct sockaddr *sa) {
@@ -411,8 +411,8 @@ HostCtx HostCtxNew(int fd) {
 }
 void HostCtxFree(HostCtx *hostctx) {
     hostctx->fd = 0;
-    BufferFree(hostctx->readbuf);
-    BufferFree(hostctx->writebuf);
-    StringFree(hostctx->alias);
+    BufferFree(&hostctx->readbuf);
+    BufferFree(&hostctx->writebuf);
+    StringFree(&hostctx->alias);
 }
 
