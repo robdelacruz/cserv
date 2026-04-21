@@ -23,16 +23,10 @@ typedef struct {
 } HostCtx;
 
 typedef struct {
-    HostCtx *items;
-    u16 len;
-    u16 cap;
-} HostCtxArray;
-
-typedef struct {
     fd_set readfds;
     fd_set writefds;
     int maxfd;
-    HostCtxArray hostctxs;
+    Array hostctxs;
 } SelectCtx;
 
 int getaddrinfo0(const char *node, const char *service, const struct addrinfo *hints, struct addrinfo **res);
@@ -57,13 +51,5 @@ void NetUnpack(char *bs, int bslen, char *fmt, ...);
 
 HostCtx HostCtxNew(int fd);
 void HostCtxFree(HostCtx *hostctx);
-
-HostCtxArray HostCtxArrayNew(u16 cap);
-void HostCtxArrayFree(HostCtxArray *a);
-void HostCtxArrayClear(HostCtxArray *a);
-void HostCtxArrayAppend(HostCtxArray *a, HostCtx hostctx);
-void HostCtxArrayRemove(HostCtxArray *a, int fd);
-HostCtx *HostCtxArrayFind(HostCtxArray a, int fd);
-HostCtx *HostCtxArrayFindAlias(HostCtxArray a, char *alias);
 
 #endif

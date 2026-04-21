@@ -3,6 +3,7 @@
 
 #define countof(v) (sizeof(v) / sizeof((v)[0]))
 #define memzero(p, v) (memset(p, 0, sizeof(v)))
+#define CAST(v, type) ((type) (v))
 
 typedef char i8;
 typedef short i16;

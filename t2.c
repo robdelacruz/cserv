@@ -95,10 +95,13 @@ void testdbvar() {
     DBMapFree(m);
 }
 
+#define HOSTCTXS(v) ((HostCtx *) v)
+
 void print_hostctxs(Array a) {
+    //HostCtx *hcs = CAST(a.items, HostCtx*);
+    HostCtx *hcs = HOSTCTXS(a.items);
     for (int i=0; i < a.len; i++) {
-        HostCtx *hc = ArrayItem(a, i);
-        printf("[%d] '%s': %d\n", i, hc->alias.bs, hc->fd);
+        printf("[%d] '%s': %d\n", i, hcs[i].alias.bs, hcs[i].fd);
     }
 }
 

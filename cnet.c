@@ -46,13 +46,13 @@ SelectCtx SelectCtxNew(int serverfd) {
     FD_ZERO(&selctx.writefds);
     FD_SET(serverfd, &selctx.readfds);
     selctx.maxfd = serverfd;
-    selctx.hostctxs = HostCtxArrayNew(255);
+    selctx.hostctxs = ArrayNew(255, sizeof(HostCtx), (FreeFunc) HostCtxFree);
     return selctx;
 }
 void SelectCtxFree(SelectCtx *selctx) {
     FD_ZERO(&selctx->readfds);
     FD_ZERO(&selctx->writefds);
-    HostCtxArrayFree(&selctx->hostctxs);
+    ArrayFree(selctx->hostctxs);
 }
 
 int CreateNonBlockingSocket(char *host, char *port, struct sockaddr *sa) {
@@ -416,64 +416,3 @@ void HostCtxFree(HostCtx *hostctx) {
     StringFree(hostctx->alias);
 }
 
-HostCtxArray HostCtxArrayNew(u16 cap) {
-    HostCtxArray a;
-    if (cap == 0)
-        cap = 32;
-    a.items = (HostCtx *) malloc(sizeof(HostCtx)*cap);
-    memset(a.items, 0, sizeof(HostCtx)*cap);
-    a.len = 0;
-    a.cap = cap;
-    return a;
-}
-void HostCtxArrayFree(HostCtxArray *a) {
-    for (int i=0; i < a->len; i++)
-        HostCtxFree(&a->items[i]);
-    free(a->items);
-    a->items = 0;
-    a->len = 0;
-}
-void HostCtxArrayClear(HostCtxArray *a) {
-    memset(a->items, 0, sizeof(HostCtx)*a->len);
-    a->len = 0;
-}
-void HostCtxArrayAppend(HostCtxArray *a, HostCtx hostctx) {
-    assert(a->len <= a->cap);
-
-    // Double the capacity if more space needed.
-    if (a->len == a->cap) {
-        a->items = realloc(a->items, sizeof(hostctx)*a->cap * 2);
-        memset(a->items + sizeof(hostctx)*a->cap, 0, sizeof(hostctx)*a->cap);
-        a->cap *= 2;
-    }
-    assert(a->len < a->cap);
-
-    a->items[a->len] = hostctx;
-    a->len++;
-}
-void HostCtxArrayRemove(HostCtxArray *a, int fd) {
-    for (int i=0; i < a->len; i++) {
-        if (a->items[i].fd == fd) {
-            HostCtxFree(&a->items[i]);
-            // Move last index to the delete index.
-            if (a->len > 1)
-                a->items[i] = a->items[a->len-1];
-            memset(&a->items[a->len-1], 0, sizeof(HostCtx));
-            a->len--;
-        }
-    }
-}
-HostCtx *HostCtxArrayFind(HostCtxArray a, int fd) {
-    for (int i=0; i < a.len; i++) {
-        if (a.items[i].fd == fd)
-            return &a.items[i];
-    }
-    return NULL;
-}
-HostCtx *HostCtxArrayFindAlias(HostCtxArray a, char *alias) {
-    for (int i=0; i < a.len; i++) {
-        if (StringEquals(a.items[i].alias, alias))
-            return &a.items[i];
-    }
-    return NULL;
-}

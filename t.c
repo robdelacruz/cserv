@@ -19,6 +19,10 @@
 #include "msg.h"
 #include "data.h"
 
+HostCtx *FindHostCtxByFd(Array a, int fd);
+HostCtx *FindHostCtxByAlias(Array a, char *alias);
+void RemoveHostCtxByFd(Array *a, int fd);
+
 void sigint(int sig) {
     printf("\nTerminating Server.\n");
     exit(0);
@@ -108,12 +112,12 @@ int main(int argc, char *argv[]) {
                         selectctx.maxfd = clientfd;
 
                     HostCtx hostctx = HostCtxNew(clientfd);
-                    HostCtxArrayAppend(&selectctx.hostctxs, hostctx);
+                    ArrayAppend(&selectctx.hostctxs, &hostctx);
                     on_host_connected(&selectctx, &hostctx);
                 } else {
                     int clientfd = i;
 
-                    HostCtx *hostctx = HostCtxArrayFind(selectctx.hostctxs, clientfd);
+                    HostCtx *hostctx = FindHostCtxByFd(selectctx.hostctxs, clientfd);
                     if (hostctx == NULL) {
                         fprintf(stderr, "Can't find client buffer %d\n", clientfd);
                         continue;
@@ -160,7 +164,7 @@ int main(int argc, char *argv[]) {
 
                         // Remove hostctx if no remaining reads and writes.
                         if (hostctx->writebuf.len == 0) {
-                            HostCtxArrayRemove(&selectctx.hostctxs, clientfd);
+                            RemoveHostCtxByFd(&selectctx.hostctxs, clientfd);
                             FD_CLR(clientfd, &selectctx.writefds);
                             shutdown(clientfd, SHUT_WR);
                             close(clientfd);
@@ -171,7 +175,7 @@ int main(int argc, char *argv[]) {
             if (FD_ISSET(i, &tmp_writefds)) {
                 int clientfd = i;
 
-                HostCtx *hostctx = HostCtxArrayFind(selectctx.hostctxs, clientfd);
+                HostCtx *hostctx = FindHostCtxByFd(selectctx.hostctxs, clientfd);
                 if (hostctx == NULL) {
                     fprintf(stderr, "Can't find client buffer %d\n", clientfd);
                     continue;
@@ -181,7 +185,7 @@ int main(int argc, char *argv[]) {
 
                 // Remove hostctx if no remaining reads and writes.
                 if (hostctx->writebuf.len == 0 && hostctx->shut_rd) {
-                    HostCtxArrayRemove(&selectctx.hostctxs, clientfd);
+                    RemoveHostCtxByFd(&selectctx.hostctxs, clientfd);
                     shutdown(clientfd, SHUT_WR);
                     close(clientfd);
                 }
@@ -192,5 +196,31 @@ int main(int argc, char *argv[]) {
     close(s0);
 
     return 0;
+}
+
+HostCtx *FindHostCtxByFd(Array a, int fd) {
+    HostCtx *hostctxs = (HostCtx *) a.items;
+    for (int i=0; i < a.len; i++) {
+        if (hostctxs[i].fd == fd)
+            return &hostctxs[i];
+    }
+    return NULL;
+}
+HostCtx *FindHostCtxByAlias(Array a, char *alias) {
+    HostCtx *hostctxs = (HostCtx *) a.items;
+    for (int i=0; i < a.len; i++) {
+        if (StringEquals(hostctxs[i].alias, alias))
+            return &hostctxs[i];
+    }
+    return NULL;
+}
+void RemoveHostCtxByFd(Array *a, int fd) {
+    HostCtx *hostctxs = (HostCtx *) a->items;
+    for (int i=0; i < a->len; i++) {
+        if (hostctxs[i].fd == fd) {
+            ArrayRemove(a, i);
+            return;
+        }
+    }
 }
 
