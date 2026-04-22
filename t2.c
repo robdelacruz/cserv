@@ -16,7 +16,6 @@
 
 #include "clib.h"
 #include "cnet.h"
-#include "data.h"
 
 void printmap(Map m) {
     printf("map len: %d cap: %d\n", m.len, m.cap);
@@ -37,29 +36,6 @@ void maptest() {
     MapClear(&m);
     printmap(m);
     MapFree(&m);
-}
-
-void printuser(User u) {
-    printf("user '%.*s' '%.*s'\n", u.alias.len, u.alias.bs, u.pwdhash.len, u.pwdhash.bs);
-}
-void validate_pwd(User u, char *pwd) {
-    if (UserValidatePwd(u, pwd))
-        printf("Valid password: %.*s - '%s'\n", u.alias.len, u.alias.bs, pwd);
-    else
-        printf("Invalid password: %.*s - '%s'\n", u.alias.len, u.alias.bs, pwd);
-}
-void testuser() {
-    User u1 = UserNew("rob", "password123");
-    printuser(u1);
-
-    validate_pwd(u1, "password123");
-    validate_pwd(u1, "password1234");
-    validate_pwd(u1, "password12");
-    validate_pwd(u1, "password");
-    validate_pwd(u1, "abc");
-    validate_pwd(u1, " ");
-    validate_pwd(u1, "");
-
 }
 
 void freeval(KVItem item) {

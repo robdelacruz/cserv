@@ -21,7 +21,7 @@ void sigint(int sig) {
     exit(0);
 }
 
-void on_host_recv_msg(SelectCtx *selectctx, HostCtx *hostctx, char *msgbytes, u16 len) {
+void on_host_recv_msg(HostCtx *hostctx, char *msgbytes, u16 len, fd_set *writefds, int *maxfd) {
     int z;
     u8 msgno = MSGNO(msgbytes);
     printf("on_host_recv_msg() msgno: %d\n", msgno);
@@ -44,7 +44,7 @@ void on_host_recv_msg(SelectCtx *selectctx, HostCtx *hostctx, char *msgbytes, u1
         StringFree(&errorstr);
     }
 }
-void on_host_eof(SelectCtx *selectctx, HostCtx *hostctx) {
+void on_host_eof(HostCtx *hostctx) {
     fprintf(stderr, "Server %d end transmission\n", hostctx->fd);
 }
 
@@ -52,6 +52,10 @@ int main(int argc, char *argv[]) {
     int z;
     char *serverhost = "localhost";
     char *serverport = "8000";
+    fd_set readfds, writefds;
+    fd_set readfds0, writefds0;
+    int maxfd=0;
+
     if (argc > 1)
         serverhost = argv[1];
     if (argc > 2)
@@ -65,24 +69,26 @@ int main(int argc, char *argv[]) {
     if (serverfd == -1)
         exit(1);
 
+    FD_ZERO(&readfds);
+    FD_ZERO(&writefds);
+    FD_SET(serverfd, &readfds);
+    maxfd = serverfd;
+    HostCtx hostctx = HostCtxNew(serverfd);
+
     String ipaddr = StringNew("");
     GetTextIPAddress(&sa, &ipaddr);
     printf("Connected to %.*s port %s...\n", ipaddr.len, ipaddr.bs, serverport);
     StringFree(&ipaddr);
 
-    HostCtx hostctx = HostCtxNew(serverfd);
-    SelectCtx selectctx = SelectCtxNew(serverfd);
-
     // Try sending some message to server
     u8 msgno = REGISTERMSG;
     NetPackLen(&hostctx.writebuf, "%b%s%s", msgno, "robtwister", "password123");
-    z = NetSend2(serverfd, &hostctx.writebuf, &selectctx);
+    z = NetSend2(serverfd, &hostctx.writebuf, &writefds, &maxfd);
 
-    fd_set tmp_readfds, tmp_writefds;
     while (1) {
-        tmp_readfds = selectctx.readfds;
-        tmp_writefds = selectctx.writefds;
-        z = select(selectctx.maxfd+1, &tmp_readfds, &tmp_writefds, NULL, NULL);
+        readfds0 = readfds;
+        writefds0 = writefds;
+        z = select(maxfd+1, &readfds0, &writefds0, NULL, NULL);
         if (z == 0) // timeout
             continue;
         if (z == -1 && errno == EINTR)
@@ -93,7 +99,7 @@ int main(int argc, char *argv[]) {
         }
 
         int read_eof = 0;
-        if (FD_ISSET(serverfd, &tmp_readfds)) {
+        if (FD_ISSET(serverfd, &readfds0)) {
             if (NetRecv(serverfd, &hostctx.readbuf) == 0)
                 read_eof = 1;
 
@@ -117,7 +123,7 @@ int main(int argc, char *argv[]) {
                 } else {
                     // Read msg body (msglen bytes)
                     if (readbuf->len >= hostctx.msglen) {
-                        on_host_recv_msg(&selectctx, &hostctx, readbuf->bs, hostctx.msglen);
+                        on_host_recv_msg(&hostctx, readbuf->bs, hostctx.msglen, &writefds, &maxfd);
                         BufferShift(readbuf, hostctx.msglen);
                         hostctx.msglen = 0;
                         continue;
@@ -126,21 +132,21 @@ int main(int argc, char *argv[]) {
                 }
             }
             if (read_eof) {
-                on_host_eof(&selectctx, &hostctx);
-                FD_CLR(serverfd, &selectctx.readfds);
+                on_host_eof(&hostctx);
+                FD_CLR(serverfd, &readfds);
                 shutdown(serverfd, SHUT_RD);
                 hostctx.shut_rd = 1;
 
                 // Close serverfd if no remaining reads and writes.
                 if (hostctx.writebuf.len == 0) {
-                    FD_CLR(serverfd, &selectctx.writefds);
+                    FD_CLR(serverfd, &writefds);
                     shutdown(serverfd, SHUT_WR);
                     break;
                 }
             }
         }
-        if (FD_ISSET(serverfd, &tmp_writefds)) {
-            z = NetSend2(serverfd, &hostctx.writebuf, &selectctx);
+        if (FD_ISSET(serverfd, &writefds0)) {
+            z = NetSend2(serverfd, &hostctx.writebuf, &writefds, &maxfd);
 
             // Close serverfd if no remaining reads and writes.
             if (z == 0 && hostctx.shut_rd) {
@@ -149,9 +155,8 @@ int main(int argc, char *argv[]) {
             }
         }
     }
-    close(serverfd);
 
-    SelectCtxFree(&selectctx);
+    close(serverfd);
     return 0;
 }
 

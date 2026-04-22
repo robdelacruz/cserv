@@ -40,21 +40,6 @@ int connect0(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
     return z;
 }
 
-SelectCtx SelectCtxNew(int serverfd) {
-    SelectCtx selctx;
-    FD_ZERO(&selctx.readfds);
-    FD_ZERO(&selctx.writefds);
-    FD_SET(serverfd, &selctx.readfds);
-    selctx.maxfd = serverfd;
-    selctx.hostctxs = ArrayNew(255, sizeof(HostCtx), (FreeFunc) HostCtxFree);
-    return selctx;
-}
-void SelectCtxFree(SelectCtx *selctx) {
-    FD_ZERO(&selctx->readfds);
-    FD_ZERO(&selctx->writefds);
-    ArrayFree(&selctx->hostctxs);
-}
-
 int CreateNonBlockingSocket(char *host, char *port, struct sockaddr *sa) {
     int z;
     struct addrinfo hints, *ai;
@@ -235,15 +220,15 @@ int NetSend(int fd, Buffer *buf) {
     return 1;
 }
 
-int NetSend2(int fd, Buffer *buf, SelectCtx *selectctx) {
+int NetSend2(int fd, Buffer *buf, fd_set *writefds, int *maxfd) {
     int z = NetSend(fd, buf);
     // Can also use  if (buf.len == 0)
     if (z == 0) {
-        FD_CLR(fd, &selectctx->writefds);
+        FD_CLR(fd, writefds);
     } else if (z == 1) {
-        FD_SET(fd, &selectctx->writefds);
-        if (fd > selectctx->maxfd)
-            selectctx->maxfd = fd;
+        FD_SET(fd, writefds);
+        if (fd > *maxfd)
+            *maxfd = fd;
     }
     return z;
 }

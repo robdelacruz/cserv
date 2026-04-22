@@ -4,7 +4,7 @@ CFLAGS+= -Wno-deprecated-declarations -Wno-unused-function -Wno-unused-variable 
 GTK_CFLAGS=`pkg-config --cflags gtk+-3.0`
 GTK_LIBS=`pkg-config --libs gtk+-3.0`
 
-SOURCE=t.c clib.c cnet.c msg.c sqlite3.o
+SOURCE=t.c clib.c cnet.c sqlite3.o
 
 all: t
 
@@ -17,10 +17,10 @@ t: $(SOURCE)
 t2: t2.c clib.c cnet.c
 	gcc -o $@ $^ $(LIBS)
 
-tclient: tclient.c msg.c clib.c cnet.c
+tclient: tclient.c clib.c cnet.c
 	gcc -o $@ $^ $(LIBS)
 
-tm: tm.c msg.c clib.c cnet.c
+tm: tm.c clib.c cnet.c
 	gcc $(CFLAGS) $(GTK_CFLAGS) -o $@ $^ $(GTK_LIBS)
 
 clean:
