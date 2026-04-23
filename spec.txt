@@ -1,0 +1,6 @@
+// Iterate over children
+GList *children = gtk_container_get_children(GTK_CONTAINER(loginui->win));
+for (GList *iter = children; iter != NULL; iter = g_list_next(iter))
+    gtk_widget_destroy(iter->data);
+g_list_free(children);
+

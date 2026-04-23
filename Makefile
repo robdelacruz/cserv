@@ -20,7 +20,7 @@ t2: t2.c clib.c cnet.c
 tclient: tclient.c clib.c cnet.c
 	gcc -o $@ $^ $(LIBS)
 
-tm: tm.c clib.c cnet.c
+tm: tm.c clib.c cnet.c uistuff.c
 	gcc $(CFLAGS) $(GTK_CFLAGS) -o $@ $^ $(GTK_LIBS)
 
 clean:

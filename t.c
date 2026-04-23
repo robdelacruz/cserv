@@ -26,15 +26,17 @@ HostCtx *FindHostCtxByFd(Array a, int fd);
 HostCtx *FindHostCtxByAlias(Array a, char *alias);
 void RemoveHostCtxByFd(Array *a, int fd);
 
-int RegisterUser(String alias, String pwd);
 String password_hash(String phrase);
 int password_verify(String phrase, String hash);
+
+void initdb(char *dbfile);
+void generate_token(String alias, String pwd, String *tok);
+int RegisterUser(String alias, String pwd, String *tok);
+int LoginUser(String alias, String pwd, String *tok);
 
 void on_host_connected(HostCtx *hostctx);
 void on_host_recv_msg(HostCtx *hostctx, char *msgbytes, u16 len, fd_set *writefds, int *maxfd);
 void on_host_eof(HostCtx *hostctx);
-
-void initdb(char *dbfile);
 
 sqlite3 *db;
 Array hostctxs;
@@ -196,6 +198,10 @@ int main(int argc, char *argv[]) {
 void on_host_connected(HostCtx *hostctx) {
     fprintf(stderr, "Connected to client %d\n", hostctx->fd);
 }
+void on_host_eof(HostCtx *hostctx) {
+    fprintf(stderr, "Client %d end transmission\n", hostctx->fd);
+}
+
 void on_host_recv_msg(HostCtx *hostctx, char *msgbytes, u16 len, fd_set *writefds, int *maxfd) {
     int z;
     u8 msgno = MSGNO(msgbytes);
@@ -209,31 +215,43 @@ void on_host_recv_msg(HostCtx *hostctx, char *msgbytes, u16 len, fd_set *writefd
     if (msgno == REGISTERMSG) {
         String alias = StringNew0();
         String pwd = StringNew0();
-        NetUnpack(msgbytes, len, "%s%s", &alias, &pwd);
-        printf("** REGISTERMSG alias: '%.*s' pwd: '%.*s' **\n", alias.len, alias.bs, pwd.len, pwd.bs);
-
         String tok = StringNew0();
         String zstatus = StringNew0();
 
-        z = RegisterUser(alias, pwd);
-        if (z == 0) {
-            // Generate token from alias + pwd
-            String s = StringDup(alias);
-            StringAppend(&s, pwd.bs);
-            String hash = password_hash(s);
+        NetUnpack(msgbytes, len, "%s%s", &alias, &pwd);
+        printf("** REGISTERMSG alias: '%.*s' pwd: '%.*s' **\n", alias.len, alias.bs, pwd.len, pwd.bs);
 
-            StringAssign(&tok, hash.bs);
+        z = RegisterUser(alias, pwd, &tok);
+        if (z == 0)
             StringAssign(&zstatus, "OK");
-
-            StringFree(&s);
-            StringFree(&hash);
-        } else if (z == -1) {
-            StringAssign(&tok, "");
+        else if (z == -1)
             StringAssignFormat(&zstatus, "Alias '%s' already taken", alias.bs);
-        } else {
-            StringAssign(&tok, "");
+        else
             StringAssign(&zstatus, "Error creating new user");
-        }
+
+        NetPackLen(&hostctx->writebuf, "%b%s%b%s", LOGINRESPMSG, tok.bs, z, zstatus.bs);
+        NetSend2(hostctx->fd, &hostctx->writebuf, writefds, maxfd);
+
+        StringFree(&alias);
+        StringFree(&pwd);
+        StringFree(&tok);
+        StringFree(&zstatus);
+    } else if (msgno == LOGINMSG) {
+        String alias = StringNew0();
+        String pwd = StringNew0();
+        String tok = StringNew0();
+        String zstatus = StringNew0();
+
+        NetUnpack(msgbytes, len, "%s%s", &alias, &pwd);
+        printf("** LOGINMSG alias: '%.*s' pwd: '%.*s' **\n", alias.len, alias.bs, pwd.len, pwd.bs);
+
+        z = LoginUser(alias, pwd, &tok);
+        if (z == 0)
+            StringAssign(&zstatus, "OK");
+        else if (z == -1)
+            StringAssign(&zstatus, "User doesn't exist");
+        else
+            StringAssign(&zstatus, "Login incorrect");
 
         NetPackLen(&hostctx->writebuf, "%b%s%b%s", LOGINRESPMSG, tok.bs, z, zstatus.bs);
         NetSend2(hostctx->fd, &hostctx->writebuf, writefds, maxfd);
@@ -243,9 +261,6 @@ void on_host_recv_msg(HostCtx *hostctx, char *msgbytes, u16 len, fd_set *writefd
         StringFree(&tok);
         StringFree(&zstatus);
     }
-}
-void on_host_eof(HostCtx *hostctx) {
-    fprintf(stderr, "Client %d end transmission\n", hostctx->fd);
 }
 
 HostCtx *FindHostCtxByFd(Array a, int fd) {
@@ -313,9 +328,21 @@ void initdb(char *dbfile) {
         panic(errstr);
 }
 
-int RegisterUser(String alias, String pwd) {
+void generate_token(String alias, String pwd, String *tok) {
+    String s = StringDup(alias);
+    StringAppend(&s, pwd.bs);
+    String hash = password_hash(s);
+
+    StringAssign(tok, hash.bs);
+
+    StringFree(&s);
+    StringFree(&hash);
+}
+int RegisterUser(String alias, String pwd, String *tok) {
     char *s;
     sqlite3_stmt *stmt;
+
+    StringAssign(tok, "");
 
     // Return error if user alias already exists.
     s = "SELECT userid FROM user WHERE alias = ?";
@@ -337,9 +364,38 @@ int RegisterUser(String alias, String pwd) {
         StringFree(&pwdhash);
         return -2;
     }
+    StringFree(&pwdhash);
+    sqlite3_finalize(stmt);
+
+    generate_token(alias, pwd, tok);
+    return 0;
+}
+
+int LoginUser(String alias, String pwd, String *tok) {
+    printf("LoginUser() alias: '%s' pwd: '%s'\n", alias.bs, pwd.bs);
+    char *s;
+    sqlite3_stmt *stmt;
+
+    StringAssign(tok, "");
+
+    // Return error if user alias doesn't exist.
+    s = "SELECT password FROM user WHERE alias = ?";
+    sqlite3_prepare_v2(db, s, -1, &stmt, 0);
+    sqlite3_bind_text(stmt, 1, alias.bs, -1, NULL);
+    if (sqlite3_step(stmt) != SQLITE_ROW) {
+        sqlite3_finalize(stmt);
+        return -1;
+    }
+
+    // Return error if wrong password.
+    char *pwdhash = (char *) sqlite3_column_text(stmt, 0);
+    if (!password_verify(pwd, STRING(pwdhash))) {
+        sqlite3_finalize(stmt);
+        return -2;
+    }
 
     sqlite3_finalize(stmt);
-    StringFree(&pwdhash);
+    generate_token(alias, pwd, tok);
     return 0;
 }
 
