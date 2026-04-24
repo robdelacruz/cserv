@@ -20,7 +20,6 @@
 #include "uistuff.h"
 
 typedef struct {
-    GtkWidget *win;
     GtkWidget *framebox;
     GtkWidget *menubar;
     GtkWidget *txtusername;
@@ -93,6 +92,7 @@ void create_login_ui() {
     gtk_box_pack_start(GTK_BOX(vbox), lbl2, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(vbox), txtpassword, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(vbox), loginbtn, FALSE, FALSE, 10);
+    gtk_widget_set_sensitive(loginbtn, FALSE);
 
     GtkWidget *framebox = gtk_vbox_new(FALSE, 0);
     gtk_container_add(GTK_CONTAINER(mainwin), framebox);
@@ -104,9 +104,15 @@ void create_login_ui() {
     g_signal_connect(G_OBJECT(quitmi), "activate", G_CALLBACK(gtk_main_quit), NULL);
     g_signal_connect(mainwin, "destroy", G_CALLBACK(gtk_main_quit), NULL);
 
-    static void *args1 = NULL;
-    args1 = new_data_args(3, txtusername, txtpassword, loginbtn);
-    g_signal_connect(G_OBJECT(loginbtn), "clicked", G_CALLBACK(CB_login_clicked), args1);
+    loginui.framebox = framebox;
+    loginui.menubar = menubar;
+    loginui.txtusername = txtusername;
+    loginui.txtpassword = txtpassword;
+    loginui.loginbtn = loginbtn;
+    loginui.statusbar = statusbar;
+    loginui.status = StringNew0();
+
+    g_signal_connect(G_OBJECT(loginbtn), "clicked", G_CALLBACK(CB_login_clicked), NULL);
 
     set_statusbar(GTK_STATUSBAR(statusbar), "Not connected");
     gtk_widget_show_all(mainwin);
@@ -117,46 +123,30 @@ void CB_file_register(GtkWidget *w, gpointer data) {
     clear_controls(mainwin);
 }
 void CB_login_clicked(GtkWidget *w, gpointer data) {
-    void **args = data;
-    GtkEntry *txtusername = args[0];
-    GtkEntry *txtpassword = args[1];
-    GtkButton *loginbtn = args[2];
+    gtk_widget_set_sensitive(loginui.loginbtn, FALSE);
 
-    g_thread_new("TF_login", TF_login, data);
+    g_thread_new("TF_login", TF_login, NULL);
 }
-gboolean SF_set_statusbar(gpointer data) {
-    void **args = data;
-    GtkStatusbar *sb = args[0];
-    char *status = args[1];
-    free(args);
-
-    set_statusbar_message(GTK_STATUSBAR(sb), 0, status);
+gboolean SF_update_statusbar(gpointer data) {
+    set_statusbar_message(GTK_STATUSBAR(loginui.statusbar), 0, loginui.status.bs);
 
     return G_SOURCE_REMOVE;
 }
-gboolean SF_enable_widget(gpointer data) {
-    void **args = data;
+gboolean SF_enable_loginbtn(gpointer data) {
+    gtk_widget_set_sensitive(loginui.loginbtn, TRUE);
 
-    GtkWidget *w = args[0];
-    gboolean f = GPOINTER_TO_INT(args[1]);
-    gtk_widget_set_sensitive(w, f);
+    return G_SOURCE_REMOVE;
+}
+gboolean SF_disable_loginbtn(gpointer data) {
+    gtk_widget_set_sensitive(loginui.loginbtn, FALSE);
 
-    free(args);
     return G_SOURCE_REMOVE;
 }
 gpointer TF_connect_server(gpointer data) {
-    void **args = data;
-    GtkWidget *statusbar = args[0];
-    GtkWidget *loginbtn = args[1];
-    free(args);
-
     int z;
-    static String status = {0};
 
-    StringAssignFormat(&status, "Connecting to %s...", serverhost);
-    g_idle_add(SF_set_statusbar, new_data_args(2, statusbar, status.bs));
-
-    g_idle_add(SF_enable_widget, new_data_args(2, loginbtn, FALSE));
+    StringAssignFormat(&loginui.status, "Connecting to %s...", serverhost);
+    g_idle_add(SF_update_statusbar, NULL);
 
     struct addrinfo hints, *ai=NULL;
     memset(&hints, 0, sizeof(hints));
@@ -165,14 +155,14 @@ gpointer TF_connect_server(gpointer data) {
     hints.ai_flags = AI_PASSIVE;
     z = getaddrinfo0(serverhost, serverport, &hints, &ai);
     if (z != 0) {
-        StringAssignFormat(&status, "Can't reach server '%s'", serverhost);
-        g_idle_add(SF_set_statusbar, new_data_args(2, statusbar, status.bs));
+        StringAssignFormat(&loginui.status, "Can't reach server '%s'", serverhost);
+        g_idle_add(SF_update_statusbar, NULL);
         goto ret;
     }
     int fd = socket0(ai->ai_family, ai->ai_socktype | SOCK_NONBLOCK, ai->ai_protocol);
     if (fd == -1) {
-        StringAssignFormat(&status, "Can't create socket for '%s'", serverhost);
-        g_idle_add(SF_set_statusbar, new_data_args(2, statusbar, status.bs));
+        StringAssignFormat(&loginui.status, "Can't create socket for '%s'", serverhost);
+        g_idle_add(SF_update_statusbar, NULL);
         goto ret;
     }
     int yes=1;
@@ -189,8 +179,8 @@ gpointer TF_connect_server(gpointer data) {
             int zz = select(fd+1, NULL, &writefds, NULL, &timeout);
             if (zz == 0) {
                 // Handle timeout
-                StringAssignFormat(&status, "Timeout connecting to '%s'", serverhost);
-                g_idle_add(SF_set_statusbar, new_data_args(2, statusbar, status.bs));
+                StringAssignFormat(&loginui.status, "Timeout connecting to '%s'", serverhost);
+                g_idle_add(SF_update_statusbar, NULL);
 
                 shutdown(fd, SHUT_RDWR);
                 goto ret;
@@ -225,8 +215,8 @@ gpointer TF_connect_server(gpointer data) {
         goto connect_fail;
 
 connect_fail:
-    StringAssignFormat(&status, "Can't connect to '%s'", serverhost);
-    g_idle_add(SF_set_statusbar, new_data_args(2, statusbar, status.bs));
+    StringAssignFormat(&loginui.status, "Can't connect to '%s'", serverhost);
+    g_idle_add(SF_update_statusbar, NULL);
     shutdown(fd, SHUT_RDWR);
     goto ret;
 
@@ -234,11 +224,11 @@ connected:
     if (hostctx.fd != -1)
         shutdown(hostctx.fd, SHUT_RDWR);
     hostctx.fd = fd;
-    StringAssignFormat(&status, "Connected to %s", serverhost);
-    g_idle_add(SF_set_statusbar, new_data_args(2, statusbar, status.bs));
+    StringAssignFormat(&loginui.status, "Connected to %s", serverhost);
+    g_idle_add(SF_update_statusbar, NULL);
 
 ret:
-    g_idle_add(SF_enable_widget, new_data_args(2, loginbtn, TRUE));
+    g_idle_add(SF_enable_loginbtn, NULL);
 
     if (ai)
         freeaddrinfo(ai);
@@ -246,11 +236,22 @@ ret:
     return NULL;
 }
 
+gboolean SF_show_connect_error(gpointer data) {
+    GtkWidget *dlg = gtk_message_dialog_new(NULL, GTK_DIALOG_MODAL, GTK_MESSAGE_ERROR, GTK_BUTTONS_OK, "Error connecting to %s", serverhost);
+    gtk_dialog_run(GTK_DIALOG(dlg));
+    gtk_widget_destroy(dlg);
+
+    return G_SOURCE_REMOVE;
+}
+
 gpointer TF_login(gpointer data) {
-    void **args = data;
-    GtkEntry *txtusername = args[0];
-    GtkEntry *txtpassword = args[1];
-    GtkButton *loginbtn = args[2];
+    if (hostctx.fd == -1)
+        TF_connect_server(NULL);
+
+    if (hostctx.fd == -1) {
+        g_idle_add(SF_show_connect_error, NULL);
+        return NULL;
+    }
 
     fd_set readfds, writefds;
     fd_set readfds0, writefds0;
@@ -262,8 +263,8 @@ gpointer TF_login(gpointer data) {
     FD_SET(hostctx.fd, &readfds);
     maxfd = hostctx.fd;
 
-    char *alias = (char *) gtk_entry_get_text(txtusername);
-    char *password = (char *) gtk_entry_get_text(txtpassword);
+    char *alias = (char *) gtk_entry_get_text(GTK_ENTRY(loginui.txtusername));
+    char *password = (char *) gtk_entry_get_text(GTK_ENTRY(loginui.txtpassword));
     u8 msgno = LOGINMSG;
     NetPackLen(&hostctx.writebuf, "%b%s%s", msgno, alias, password);
     z = NetSend2(hostctx.fd, &hostctx.writebuf, &writefds, &maxfd);
