@@ -272,3 +272,96 @@ gpointer TF_login(gpointer data) {
     return NULL;
 }
 
+gpointer TF_select(gpointer data) {
+    if (hostctx.fd == -1)
+        TF_connect_server(NULL);
+
+    if (hostctx.fd == -1) {
+        g_idle_add(SF_show_connect_error, NULL);
+        return NULL;
+    }
+
+    int z;
+    fd_set readfds, writefds;
+    fd_set readfds0, writefds0;
+    int maxfd=0;
+
+    FD_ZERO(&readfds);
+    FD_ZERO(&writefds);
+    FD_SET(hostctx.fd, &readfds);
+    maxfd = hostctx.fd;
+
+    while (1) {
+        readfds0 = readfds;
+        writefds0 = writefds;
+        z = select(maxfd+1, &readfds0, &writefds0, NULL, NULL);
+        if (z == 0) // timeout
+            continue;
+        if (z == -1 && errno == EINTR)
+            continue;
+        if (z == -1) {
+            fprintf(stderr, "select(): %s\n", strerror(errno));
+            break;
+        }
+
+        int read_eof = 0;
+        if (FD_ISSET(hostctx.fd, &readfds0)) {
+            if (NetRecv(hostctx.fd, &hostctx.readbuf) == 0)
+                read_eof = 1;
+
+            // Each message is a 16bit msglen value followed by msglen sequence of bytes.
+            // A msglen of 0 means no more bytes remaining in the stream.
+
+            Buffer *readbuf = &hostctx.readbuf;
+            while (1) {
+                if (hostctx.msglen == 0) {
+                    if (readbuf->len >= sizeof(u16)) {
+                        u16 *bs = (u16 *) readbuf->bs;
+                        hostctx.msglen = ntohs(*bs);
+                        if (hostctx.msglen == 0) {
+                            read_eof = 1;
+                            break;
+                        }
+                        BufferShift(readbuf, sizeof(u16));
+                        continue;
+                    }
+                    break;
+                } else {
+                    // Read msg body (msglen bytes)
+                    if (readbuf->len >= hostctx.msglen) {
+//                        on_host_recv_msg(&hostctx, readbuf->bs, hostctx.msglen, &writefds, &maxfd);
+                        BufferShift(readbuf, hostctx.msglen);
+                        hostctx.msglen = 0;
+                        continue;
+                    }
+                    break;
+                }
+            }
+            if (read_eof) {
+//                on_host_eof(&hostctx);
+                FD_CLR(hostctx.fd, &readfds);
+                shutdown(hostctx.fd, SHUT_RD);
+                hostctx.shut_rd = 1;
+
+                // Close serverfd if no remaining reads and writes.
+                if (hostctx.writebuf.len == 0) {
+                    FD_CLR(hostctx.fd, &writefds);
+                    shutdown(hostctx.fd, SHUT_WR);
+                    break;
+                }
+            }
+        }
+        if (FD_ISSET(hostctx.fd, &writefds0)) {
+            z = NetSend2(hostctx.fd, &hostctx.writebuf, &writefds, &maxfd);
+
+            // Close serverfd if no remaining reads and writes.
+            if (z == 0 && hostctx.shut_rd) {
+                shutdown(hostctx.fd, SHUT_WR);
+                break;
+            }
+        }
+    }
+
+    return NULL;
+}
+
