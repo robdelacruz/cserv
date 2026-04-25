@@ -38,7 +38,9 @@ gboolean SF_connect_server(gpointer data);
 gboolean IOF_connect_server1(GIOChannel *ch, GIOCondition cond, gpointer data);
 gboolean SF_connect_server1_timeout(gpointer data);
 gboolean SF_login(gpointer data);
-gboolean IOF_login1(GIOChannel *ch, GIOCondition cond, gpointer data);
+gboolean IOF_login_out(GIOChannel *ch, GIOCondition cond, gpointer data);
+gboolean IOF_login_in(GIOChannel *ch, GIOCondition cond, gpointer data);
+void on_login_response(char *msgbytes, u16 len);
 
 void CB_file_register(GtkWidget *w, gpointer data);
 void CB_login_clicked(GtkWidget *w, gpointer data);
@@ -259,7 +261,11 @@ ret:
 }
 
 gboolean SF_login(gpointer data) {
+    set_statusbar(GTK_STATUSBAR(loginui.statusbar), "Sending login...");
     GIOChannel *ch=NULL;
+
+    ch = g_io_channel_unix_new(serverfd);
+    g_io_add_watch(ch, G_IO_IN, IOF_login_in, NULL);
 
     char *alias = (char *) gtk_entry_get_text(GTK_ENTRY(loginui.txtusername));
     char *password = (char *) gtk_entry_get_text(GTK_ENTRY(loginui.txtpassword));
@@ -268,37 +274,109 @@ gboolean SF_login(gpointer data) {
     int z = NetSend(serverfd, &hostctx.writebuf);
     if (z == 1) {
         ch = g_io_channel_unix_new(serverfd);
-        g_io_add_watch(ch, G_IO_OUT, IOF_login1, NULL);
-        return G_SOURCE_CONTINUE;
+        g_io_add_watch(ch, G_IO_OUT, IOF_login_out, NULL);
+        return G_SOURCE_REMOVE;
     }
     if (z < 0) {
         set_statusbar(GTK_STATUSBAR(loginui.statusbar), "Network error during login");
         BufferClear(&hostctx.writebuf);
-        goto ret;
+        gtk_widget_set_sensitive(loginui.loginbtn, TRUE);
+        gtk_button_set_label(GTK_BUTTON(loginui.loginbtn), "Login");
+        return G_SOURCE_REMOVE;
     }
-
-    // Login send success
-
-ret:
+    // All bytes sent
+    set_statusbar(GTK_STATUSBAR(loginui.statusbar), "Waiting for response");
+    BufferClear(&hostctx.writebuf);
     gtk_widget_set_sensitive(loginui.loginbtn, TRUE);
     gtk_button_set_label(GTK_BUTTON(loginui.loginbtn), "Login");
     return G_SOURCE_REMOVE;
 }
-gboolean IOF_login1(GIOChannel *ch, GIOCondition cond, gpointer data) {
+gboolean IOF_login_out(GIOChannel *ch, GIOCondition cond, gpointer data) {
     int z = NetSend(serverfd, &hostctx.writebuf);
     if (z == 1)
         return G_SOURCE_CONTINUE;
     if (z < 0) {
-        set_statusbar(GTK_STATUSBAR(loginui.statusbar), "Network error during login");
+        set_statusbar(GTK_STATUSBAR(loginui.statusbar), "Network send error during login");
         BufferClear(&hostctx.writebuf);
-        goto ret;
+        gtk_widget_set_sensitive(loginui.loginbtn, TRUE);
+        gtk_button_set_label(GTK_BUTTON(loginui.loginbtn), "Login");
+        return G_SOURCE_REMOVE;
     }
-
-    // Login send success
-
-ret:
+    // All bytes sent
+    set_statusbar(GTK_STATUSBAR(loginui.statusbar), "Waiting for response");
+    BufferClear(&hostctx.writebuf);
     gtk_widget_set_sensitive(loginui.loginbtn, TRUE);
     gtk_button_set_label(GTK_BUTTON(loginui.loginbtn), "Login");
     return G_SOURCE_REMOVE;
+}
+gboolean IOF_login_in(GIOChannel *ch, GIOCondition cond, gpointer data) {
+    int read_eof = 0;
+    int z = NetRecv(serverfd, &hostctx.readbuf);
+    if (z < 0) {
+        set_statusbar(GTK_STATUSBAR(loginui.statusbar), "Network receive error during login");
+        BufferClear(&hostctx.readbuf);
+        gtk_widget_set_sensitive(loginui.loginbtn, TRUE);
+        gtk_button_set_label(GTK_BUTTON(loginui.loginbtn), "Login");
+        return G_SOURCE_REMOVE;
+    }
+    if (z == 0)
+        read_eof = 1;
+
+    Buffer *readbuf = &hostctx.readbuf;
+    while (1) {
+        if (hostctx.msglen == 0) {
+            if (readbuf->len >= sizeof(u16)) {
+                u16 *bs = (u16 *) readbuf->bs;
+                hostctx.msglen = ntohs(*bs);
+                if (hostctx.msglen == 0) {
+                    read_eof = 1;
+                    break;
+                }
+                BufferShift(readbuf, sizeof(u16));
+                continue;
+            }
+            break;
+        } else {
+            // Read msg body (msglen bytes)
+            if (readbuf->len >= hostctx.msglen) {
+                on_login_response(readbuf->bs, hostctx.msglen);
+                BufferShift(readbuf, hostctx.msglen);
+                hostctx.msglen = 0;
+                continue;
+            }
+            break;
+        }
+    }
+//    if (read_eof) {
+//        shutdown(serverfd, SHUT_RD);
+//        if (hostctx.writebuf.len == 0)
+//            shutdown(serverfd, SHUT_WR);
+//    }
+    if (read_eof)
+        return G_SOURCE_REMOVE;
+    return G_SOURCE_CONTINUE;
+}
+void on_login_response(char *msgbytes, u16 len) {
+    set_statusbar(GTK_STATUSBAR(loginui.statusbar), "Received login response");
+    u8 msgno = MSGNO(msgbytes);
+    printf("on_login_response() msgno: %d\n", msgno);
+    if (msgno == 0)
+        return;
+
+    // Skip over msgno (first byte)
+    msgbytes++;
+    len--;
+
+    if (msgno == LOGINRESPMSG) {
+        String tok = StringNew0();
+        i8 retno;
+        String errorstr = StringNew0();
+
+        NetUnpack(msgbytes, len, "%s%b%s", &tok, &retno, &errorstr);
+        printf("** LOGINRESPMSG tok: '%.*s' retno: %d errorstr: '%.*s' **\n", tok.len, tok.bs, retno, errorstr.len, errorstr.bs);
+
+        StringFree(&tok);
+        StringFree(&errorstr);
+    }
 }
 
