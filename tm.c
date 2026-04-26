@@ -34,6 +34,7 @@ void create_login_ui();
 static void update_ui();
 static gboolean SF_update_loginui(gpointer data);
 static gpointer TF_connect_server(gpointer data);
+gpointer TF_select(gpointer data);
 
 void CB_file_register(GtkWidget *w, gpointer data);
 void CB_login_clicked(GtkWidget *w, gpointer data);
@@ -124,7 +125,8 @@ void create_login_ui() {
     gtk_widget_show_all(mainwin);
 
     g_signal_connect(G_OBJECT(loginbtn), "clicked", G_CALLBACK(CB_login_clicked), NULL);
-    g_thread_new("TF_connect_server", TF_connect_server, NULL);
+    //g_thread_new("TF_connect_server", TF_connect_server, NULL);
+    g_thread_new("TF_select", TF_select, NULL);
 }
 void CB_file_register(GtkWidget *w, gpointer data) {
     clear_controls(mainwin);
@@ -148,6 +150,7 @@ static gboolean SF_update_loginui(gpointer data) {
     return G_SOURCE_REMOVE;
 }
 static gpointer TF_connect_server(gpointer data) {
+    printf("TF_connect_server()\n");
     int z;
 
     struct addrinfo hints, *ai=NULL;
@@ -268,8 +271,7 @@ gpointer TF_login(gpointer data) {
         StringAssignFormat(&loginui.status, "Connecting to %s...", serverhost);
         loginui.loginbtn_active = FALSE;
         update_ui();
-
-        g_thread_new("TF_connect_server", TF_connect_server, TF_login);
+        TF_connect_server(TF_login);
         return NULL;
     }
 
@@ -306,18 +308,20 @@ gboolean SF_send_login(gpointer data) {
 }
 
 gpointer TF_select(gpointer data) {
-    if (hostctx.fd == -1)
-        TF_connect_server(NULL);
-
-    if (hostctx.fd == -1) {
-        g_idle_add(SF_show_connect_error, NULL);
-        return NULL;
-    }
-
     int z;
     fd_set readfds, writefds;
     fd_set readfds0, writefds0;
     int maxfd=0;
+
+start:
+    printf("TF_select()\n");
+    if (hostctx.fd == -1) {
+        StringAssignFormat(&loginui.status, "Connecting to %s...", serverhost);
+        loginui.loginbtn_active = FALSE;
+        update_ui();
+        TF_connect_server(TF_select);
+        return NULL;
+    }
 
     FD_ZERO(&readfds);
     FD_ZERO(&writefds);
@@ -380,7 +384,7 @@ gpointer TF_select(gpointer data) {
                 if (hostctx.writebuf.len == 0) {
                     FD_CLR(hostctx.fd, &writefds);
                     shutdown(hostctx.fd, SHUT_WR);
-                    break;
+                    goto ret;
                 }
             }
         }
@@ -390,10 +394,17 @@ gpointer TF_select(gpointer data) {
             // Close serverfd if no remaining reads and writes.
             if (z == 0 && hostctx.shut_rd) {
                 shutdown(hostctx.fd, SHUT_WR);
-                break;
+                goto ret;
             }
         }
     }
+
+ret:
+    // Close server socket and try getting a new connection.
+    close(hostctx.fd);
+    hostctx.fd = -1;
+    goto start;
+//    g_thread_new("TF_select", TF_Select, NULL);
 
     return NULL;
 }
