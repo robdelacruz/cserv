@@ -235,14 +235,15 @@ connect_fail:
     goto ret;
 
 connected:
+    StringAssignFormat(&loginui.status, "Connected to %s", serverhost);
+    loginui.loginbtn_active = TRUE;
+    update_ui();
+
     if (hostctx.fd != -1) {
         shutdown(hostctx.fd, SHUT_RDWR);
         close(hostctx.fd);
     }
     hostctx.fd = fd;
-    StringAssignFormat(&loginui.status, "Connected to %s", serverhost);
-    loginui.loginbtn_active = TRUE;
-    update_ui();
 
     GThreadFunc nextfunc = (GThreadFunc) data;
     if (nextfunc)
@@ -264,6 +265,10 @@ gboolean SF_show_connect_error(gpointer data) {
 
 gpointer TF_login(gpointer data) {
     if (hostctx.fd == -1) {
+        StringAssignFormat(&loginui.status, "Connecting to %s...", serverhost);
+        loginui.loginbtn_active = FALSE;
+        update_ui();
+
         g_thread_new("TF_connect_server", TF_connect_server, TF_login);
         return NULL;
     }
