@@ -19,18 +19,37 @@
 #include "msg.h"
 #include "uistuff.h"
 
-typedef struct {
-    GtkWidget *framebox;
-    GtkWidget *menubar;
-    GtkWidget *bodybox;
-    GtkWidget *txtusername;
-    GtkWidget *txtpassword;
-    GtkWidget *loginbtn;
-    GtkWidget *statusbar;
-    String status;
-    gboolean loginbtn_active;
-} LoginUI;
+typedef enum {
+    NONE,
+    LOGINWIN,
+    CONTACTSWIN
+} WindowID;
 
+
+typedef struct {
+    GtkWidget *mainwin;
+    GtkWidget *menubar;
+    GtkWidget *framebox;
+    GtkWidget *contentbox;
+    GtkWidget *statusbar;
+    String statusbar_text;
+
+    GtkWidget *login_username_entry;
+    GtkWidget *login_password_entry;
+    GtkWidget *login_loginbtn;
+    gboolean login_isenabled;
+
+    GtkWidget *main_contacts_listbox;
+    WindowID active_win;
+} UILedger;
+
+typedef struct {
+    String username;
+    String tok;
+    gboolean is_loggedin;
+} Session;
+
+void create_main_frame();
 void create_login_ui();
 
 static gboolean SF_update_loginui(gpointer data);
@@ -54,9 +73,8 @@ gboolean SF_on_login_response(gpointer data);
 char *serverhost = "localhost";
 char *serverport = "8000";
 HostCtx hostctx;
-GtkWidget *mainwin;
-LoginUI loginui;
-String logintok = {0};
+UILedger ui;
+Session session;
 
 int main(int argc, char *argv[]) {
     gtk_init(&argc, &argv);
@@ -67,22 +85,25 @@ int main(int argc, char *argv[]) {
         serverport = argv[2];
 
     hostctx = HostCtxNew(-1);
-    logintok = StringNew0();
 
-    mainwin = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-    gtk_window_set_default_size(GTK_WINDOW(mainwin), 400,600);
-    gtk_window_set_position(GTK_WINDOW(mainwin), GTK_WIN_POS_CENTER);
-    gtk_window_set_title(GTK_WINDOW(mainwin), "Messenger");
+    session.username = StringNew0();
+    session.tok = StringNew0();
+    session.is_loggedin = FALSE;
 
+    create_main_frame();
     create_login_ui();
+    gtk_widget_show_all(ui.mainwin);
+
     gtk_main();
     return 0;
 }
 
-void create_login_ui() {
-    clear_controls(mainwin);
-
-    gtk_window_set_title(GTK_WINDOW(mainwin), "Login");
+void create_main_frame() {
+    // Main window
+    GtkWidget *mainwin = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    gtk_window_set_default_size(GTK_WINDOW(mainwin), 400,600);
+    gtk_window_set_position(GTK_WINDOW(mainwin), GTK_WIN_POS_CENTER);
+    gtk_window_set_title(GTK_WINDOW(mainwin), "Messenger");
 
     // Menu and statusbar
     GtkWidget *menubar = gtk_menu_bar_new();
@@ -96,6 +117,34 @@ void create_login_ui() {
     gtk_menu_shell_append(GTK_MENU_SHELL(menubar), filemi);
     GtkWidget *statusbar = gtk_statusbar_new();
 
+    // Outer framebox and inner contentbox
+    // Menus, content, and statusbar goes into framebox
+    // UI widgets goes into contentbox
+    GtkWidget *contentbox = gtk_vbox_new(FALSE, 5);
+    GtkWidget *framebox = gtk_vbox_new(FALSE, 0);
+    gtk_container_add(GTK_CONTAINER(mainwin), framebox);
+    gtk_box_pack_start(GTK_BOX(framebox), menubar, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(framebox), contentbox, FALSE, FALSE, 0);
+    gtk_box_pack_end(GTK_BOX(framebox), statusbar, FALSE, FALSE, 0);
+
+    g_signal_connect(G_OBJECT(registermi), "activate", G_CALLBACK(CB_file_register), NULL);
+    g_signal_connect(G_OBJECT(quitmi), "activate", G_CALLBACK(gtk_main_quit), NULL);
+    g_signal_connect(mainwin, "destroy", G_CALLBACK(gtk_main_quit), NULL);
+
+    ui.mainwin = mainwin;
+    ui.framebox = framebox;
+    ui.menubar = menubar;
+    ui.contentbox = contentbox;
+    ui.statusbar = statusbar;
+    ui.statusbar_text = StringNew0();
+    ui.active_win = NONE;
+}
+
+void create_login_ui() {
+    clear_controls(ui.contentbox);
+
+    gtk_window_set_title(GTK_WINDOW(ui.mainwin), "Login");
+
     // Login controls
     GtkWidget *lbl1 = create_label1("Username");
     GtkWidget *txtusername = gtk_entry_new();
@@ -103,59 +152,42 @@ void create_login_ui() {
     GtkWidget *txtpassword = gtk_entry_new();
     GtkWidget *loginbtn = create_center_button("Login");
 
-    GtkWidget *bodybox = gtk_vbox_new(FALSE, 5);
-    set_widget_margins(bodybox, 100, 100, 200, 200);
-    gtk_box_pack_start(GTK_BOX(bodybox), lbl1, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(bodybox), txtusername, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(bodybox), lbl2, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(bodybox), txtpassword, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(bodybox), loginbtn, FALSE, FALSE, 10);
+    set_widget_margins(ui.contentbox, 100, 100, 200, 200);
+    gtk_box_pack_start(GTK_BOX(ui.contentbox), lbl1, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(ui.contentbox), txtusername, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(ui.contentbox), lbl2, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(ui.contentbox), txtpassword, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(ui.contentbox), loginbtn, FALSE, FALSE, 10);
     gtk_widget_set_sensitive(loginbtn, FALSE);
 
-    GtkWidget *framebox = gtk_vbox_new(FALSE, 0);
-    gtk_container_add(GTK_CONTAINER(mainwin), framebox);
-    gtk_box_pack_start(GTK_BOX(framebox), menubar, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(framebox), bodybox, FALSE, FALSE, 0);
-    gtk_box_pack_end(GTK_BOX(framebox), statusbar, FALSE, FALSE, 0);
+    ui.active_win = LOGINWIN;
+    ui.login_username_entry = txtusername;
+    ui.login_password_entry = txtpassword;
+    ui.login_loginbtn = loginbtn;
+    ui.login_isenabled = FALSE;
 
-    g_signal_connect(G_OBJECT(registermi), "activate", G_CALLBACK(CB_file_register), NULL);
-    g_signal_connect(G_OBJECT(quitmi), "activate", G_CALLBACK(gtk_main_quit), NULL);
-    g_signal_connect(mainwin, "destroy", G_CALLBACK(gtk_main_quit), NULL);
-
-    loginui.framebox = framebox;
-    loginui.menubar = menubar;
-    loginui.bodybox = bodybox;
-    loginui.txtusername = txtusername;
-    loginui.txtpassword = txtpassword;
-    loginui.loginbtn = loginbtn;
-    loginui.statusbar = statusbar;
-    loginui.status = StringNew0();
-    loginui.loginbtn_active = FALSE;
-
-    set_statusbar(GTK_STATUSBAR(statusbar), "Connecting to %s...", serverhost);
-    gtk_button_set_label(GTK_BUTTON(loginbtn), "Wait");
-    gtk_widget_set_sensitive(loginbtn, FALSE);
-
-    gtk_widget_show_all(mainwin);
+    set_statusbar(GTK_STATUSBAR(ui.statusbar), "Connecting to %s...", serverhost);
+    gtk_button_set_label(GTK_BUTTON(ui.login_loginbtn), "Wait");
+    gtk_widget_set_sensitive(ui.login_loginbtn, FALSE);
 
     g_signal_connect(G_OBJECT(loginbtn), "clicked", G_CALLBACK(CB_login_clicked), NULL);
     g_thread_new("TF_connect", TF_connect, NULL);
 }
+
 void CB_file_register(GtkWidget *w, gpointer data) {
-    clear_controls(mainwin);
 }
 void CB_login_clicked(GtkWidget *w, gpointer data) {
-    gtk_widget_set_sensitive(loginui.loginbtn, FALSE);
+    gtk_widget_set_sensitive(ui.login_loginbtn, FALSE);
 
     g_thread_new("TF_login", TF_login, NULL);
 }
 static gboolean SF_update_loginui(gpointer data) {
-    set_statusbar_message(GTK_STATUSBAR(loginui.statusbar), 0, loginui.status.bs);
-    gtk_widget_set_sensitive(loginui.loginbtn, loginui.loginbtn_active);
-    if (loginui.loginbtn_active)
-        gtk_button_set_label(GTK_BUTTON(loginui.loginbtn), "Login");
+    set_statusbar_message(GTK_STATUSBAR(ui.statusbar), 0, ui.statusbar_text.bs);
+    gtk_widget_set_sensitive(ui.login_loginbtn, ui.login_isenabled);
+    if (ui.login_isenabled)
+        gtk_button_set_label(GTK_BUTTON(ui.login_loginbtn), "Login");
     else
-        gtk_button_set_label(GTK_BUTTON(loginui.loginbtn), "Wait");
+        gtk_button_set_label(GTK_BUTTON(ui.login_loginbtn), "Wait");
 
     return G_SOURCE_REMOVE;
 }
@@ -163,8 +195,8 @@ static void update_ui() {
     g_idle_add(SF_update_loginui, NULL);
 }
 static void update_connect_fail_ui() {
-    StringAssignFormat(&loginui.status, "Can't connect to '%s'", serverhost);
-    loginui.loginbtn_active = TRUE;
+    StringAssignFormat(&ui.statusbar_text, "Can't connect to '%s'", serverhost);
+    ui.login_isenabled = TRUE;
     update_ui();
 }
 
@@ -181,8 +213,8 @@ static gpointer TF_connect(gpointer data) {
     // getaddrinfo() will block if an unreachable serverhost (Ex. 'abcdomain') is given.
     z = getaddrinfo0(serverhost, serverport, &hints, &ai);
     if (z != 0) {
-        StringAssignFormat(&loginui.status, "Can't reach server '%s'", serverhost);
-        loginui.loginbtn_active = TRUE;
+        StringAssignFormat(&ui.statusbar_text, "Can't reach server '%s'", serverhost);
+        ui.login_isenabled = TRUE;
         update_ui();
 
         freeaddrinfo(ai);
@@ -190,8 +222,8 @@ static gpointer TF_connect(gpointer data) {
     }
     int fd = socket0(ai->ai_family, ai->ai_socktype | SOCK_NONBLOCK, ai->ai_protocol);
     if (fd == -1) {
-        StringAssignFormat(&loginui.status, "Can't create socket for '%s'", serverhost);
-        loginui.loginbtn_active = TRUE;
+        StringAssignFormat(&ui.statusbar_text, "Can't create socket for '%s'", serverhost);
+        ui.login_isenabled = TRUE;
         update_ui();
 
         freeaddrinfo(ai);
@@ -221,8 +253,8 @@ static gpointer TF_connect(gpointer data) {
             int zz = select(fd+1, NULL, &writefds, NULL, &timeout);
             if (zz == 0) {
                 // Handle timeout
-                StringAssignFormat(&loginui.status, "Timeout connecting to '%s'", serverhost);
-                loginui.loginbtn_active = TRUE;
+                StringAssignFormat(&ui.statusbar_text, "Timeout connecting to '%s'", serverhost);
+                ui.login_isenabled = TRUE;
                 update_ui();
                 shutdown(fd, SHUT_RDWR);
                 close(fd);
@@ -262,8 +294,8 @@ static gpointer TF_connect(gpointer data) {
 
 connected:
     // Socket connected
-    StringAssignFormat(&loginui.status, "Connected to %s", serverhost);
-    loginui.loginbtn_active = TRUE;
+    StringAssignFormat(&ui.statusbar_text, "Connected to %s", serverhost);
+    ui.login_isenabled = TRUE;
     update_ui();
 
     if (hostctx.fd != -1) {
@@ -293,15 +325,15 @@ gboolean SF_show_connect_error(gpointer data) {
 
 gpointer TF_login(gpointer data) {
     if (hostctx.fd == -1) {
-        StringAssignFormat(&loginui.status, "Connecting to %s...", serverhost);
-        loginui.loginbtn_active = FALSE;
+        StringAssignFormat(&ui.statusbar_text, "Connecting to %s...", serverhost);
+        ui.login_isenabled = FALSE;
         update_ui();
         TF_connect(TF_login);
         return NULL;
     }
 
-    StringAssignFormat(&loginui.status, "Logging in...");
-    loginui.loginbtn_active = FALSE;
+    StringAssignFormat(&ui.statusbar_text, "Logging in...");
+    ui.login_isenabled = FALSE;
     update_ui();
 
     g_idle_add(SF_send_login, NULL);
@@ -319,14 +351,14 @@ gboolean SF_send_login(gpointer data) {
     FD_SET(hostctx.fd, &readfds);
     maxfd = hostctx.fd;
 
-    char *alias = (char *) gtk_entry_get_text(GTK_ENTRY(loginui.txtusername));
-    char *password = (char *) gtk_entry_get_text(GTK_ENTRY(loginui.txtpassword));
+    char *alias = (char *) gtk_entry_get_text(GTK_ENTRY(ui.login_username_entry));
+    char *password = (char *) gtk_entry_get_text(GTK_ENTRY(ui.login_password_entry));
     u8 msgno = LOGINMSG;
     NetPackLen(&hostctx.writebuf, "%b%s%s", msgno, alias, password);
     z = NetSend2(hostctx.fd, &hostctx.writebuf, &writefds, &maxfd);
 
-    StringAssignFormat(&loginui.status, "Waiting for response...");
-    loginui.loginbtn_active = FALSE;
+    StringAssignFormat(&ui.statusbar_text, "Waiting for response...");
+    ui.login_isenabled = FALSE;
     update_ui();
 
     return G_SOURCE_REMOVE;
@@ -458,19 +490,23 @@ void on_server_close(HostCtx *hostctx) {
 gboolean SF_on_login_response(gpointer data) {
     LoginResponse *resp = data;
 
-    logintok = StringDup(resp->tok);
+    StringAssign(&session.tok, resp->tok.bs);
 
     if (resp->retno == 0) {
-        set_statusbar(GTK_STATUSBAR(loginui.statusbar), "Logged on");
-        clear_controls(loginui.bodybox);
+        set_statusbar(GTK_STATUSBAR(ui.statusbar), "Logged on");
+        clear_controls(ui.contentbox);
     } else {
-        GtkWidget *dlg = gtk_message_dialog_new(GTK_WINDOW(mainwin), GTK_DIALOG_MODAL, GTK_MESSAGE_ERROR, GTK_BUTTONS_OK, "%s", resp->errorstr.bs);
+        GtkWidget *dlg = gtk_message_dialog_new(GTK_WINDOW(ui.mainwin), GTK_DIALOG_MODAL, GTK_MESSAGE_ERROR, GTK_BUTTONS_OK, "%s", resp->errorstr.bs);
         gtk_dialog_run(GTK_DIALOG(dlg));
         gtk_widget_destroy(dlg);
 
-        gtk_button_set_label(GTK_BUTTON(loginui.loginbtn), "Login");
-        gtk_widget_set_sensitive(loginui.loginbtn, TRUE);
+        gtk_button_set_label(GTK_BUTTON(ui.login_loginbtn), "Login");
+        gtk_widget_set_sensitive(ui.login_loginbtn, TRUE);
     }
+
+    StringFree(&resp->tok);
+    StringFree(&resp->errorstr);
+    free(resp);
 
     return G_SOURCE_REMOVE;
 }
