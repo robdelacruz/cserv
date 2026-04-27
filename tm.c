@@ -22,6 +22,7 @@
 typedef struct {
     GtkWidget *framebox;
     GtkWidget *menubar;
+    GtkWidget *bodybox;
     GtkWidget *txtusername;
     GtkWidget *txtpassword;
     GtkWidget *loginbtn;
@@ -31,21 +32,31 @@ typedef struct {
 } LoginUI;
 
 void create_login_ui();
-static void update_ui();
+
 static gboolean SF_update_loginui(gpointer data);
-static gpointer TF_connect_server(gpointer data);
-gpointer TF_select(gpointer data);
+static void update_ui();
+static void update_connect_fail_ui();
+
+static gpointer TF_connect(gpointer data);
+void select_wait(int fd);
 
 void CB_file_register(GtkWidget *w, gpointer data);
 void CB_login_clicked(GtkWidget *w, gpointer data);
 gpointer TF_login(gpointer data);
 gboolean SF_send_login(gpointer data);
 
+void on_recv_msg(HostCtx *hostctx, char *msgbytes, u16 len, fd_set *writefds, int *maxfd);
+void on_read_eof(HostCtx *hostctx);
+void on_server_close(HostCtx *hostctx);
+
+gboolean SF_on_login_response(gpointer data);
+
 char *serverhost = "localhost";
 char *serverport = "8000";
 HostCtx hostctx;
 GtkWidget *mainwin;
 LoginUI loginui;
+String logintok = {0};
 
 int main(int argc, char *argv[]) {
     gtk_init(&argc, &argv);
@@ -56,6 +67,8 @@ int main(int argc, char *argv[]) {
         serverport = argv[2];
 
     hostctx = HostCtxNew(-1);
+    logintok = StringNew0();
+
     mainwin = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_default_size(GTK_WINDOW(mainwin), 400,600);
     gtk_window_set_position(GTK_WINDOW(mainwin), GTK_WIN_POS_CENTER);
@@ -90,19 +103,19 @@ void create_login_ui() {
     GtkWidget *txtpassword = gtk_entry_new();
     GtkWidget *loginbtn = create_center_button("Login");
 
-    GtkWidget *vbox = gtk_vbox_new(FALSE, 5);
-    set_widget_margins(vbox, 100, 100, 200, 200);
-    gtk_box_pack_start(GTK_BOX(vbox), lbl1, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(vbox), txtusername, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(vbox), lbl2, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(vbox), txtpassword, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(vbox), loginbtn, FALSE, FALSE, 10);
+    GtkWidget *bodybox = gtk_vbox_new(FALSE, 5);
+    set_widget_margins(bodybox, 100, 100, 200, 200);
+    gtk_box_pack_start(GTK_BOX(bodybox), lbl1, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(bodybox), txtusername, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(bodybox), lbl2, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(bodybox), txtpassword, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(bodybox), loginbtn, FALSE, FALSE, 10);
     gtk_widget_set_sensitive(loginbtn, FALSE);
 
     GtkWidget *framebox = gtk_vbox_new(FALSE, 0);
     gtk_container_add(GTK_CONTAINER(mainwin), framebox);
     gtk_box_pack_start(GTK_BOX(framebox), menubar, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(framebox), vbox, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(framebox), bodybox, FALSE, FALSE, 0);
     gtk_box_pack_end(GTK_BOX(framebox), statusbar, FALSE, FALSE, 0);
 
     g_signal_connect(G_OBJECT(registermi), "activate", G_CALLBACK(CB_file_register), NULL);
@@ -111,6 +124,7 @@ void create_login_ui() {
 
     loginui.framebox = framebox;
     loginui.menubar = menubar;
+    loginui.bodybox = bodybox;
     loginui.txtusername = txtusername;
     loginui.txtpassword = txtpassword;
     loginui.loginbtn = loginbtn;
@@ -125,8 +139,7 @@ void create_login_ui() {
     gtk_widget_show_all(mainwin);
 
     g_signal_connect(G_OBJECT(loginbtn), "clicked", G_CALLBACK(CB_login_clicked), NULL);
-    //g_thread_new("TF_connect_server", TF_connect_server, NULL);
-    g_thread_new("TF_select", TF_select, NULL);
+    g_thread_new("TF_connect", TF_connect, NULL);
 }
 void CB_file_register(GtkWidget *w, gpointer data) {
     clear_controls(mainwin);
@@ -135,9 +148,6 @@ void CB_login_clicked(GtkWidget *w, gpointer data) {
     gtk_widget_set_sensitive(loginui.loginbtn, FALSE);
 
     g_thread_new("TF_login", TF_login, NULL);
-}
-static void update_ui() {
-    g_idle_add(SF_update_loginui, NULL);
 }
 static gboolean SF_update_loginui(gpointer data) {
     set_statusbar_message(GTK_STATUSBAR(loginui.statusbar), 0, loginui.status.bs);
@@ -149,8 +159,17 @@ static gboolean SF_update_loginui(gpointer data) {
 
     return G_SOURCE_REMOVE;
 }
-static gpointer TF_connect_server(gpointer data) {
-    printf("TF_connect_server()\n");
+static void update_ui() {
+    g_idle_add(SF_update_loginui, NULL);
+}
+static void update_connect_fail_ui() {
+    StringAssignFormat(&loginui.status, "Can't connect to '%s'", serverhost);
+    loginui.loginbtn_active = TRUE;
+    update_ui();
+}
+
+static gpointer TF_connect(gpointer data) {
+    printf("TF_connect()\n");
     int z;
 
     struct addrinfo hints, *ai=NULL;
@@ -165,23 +184,32 @@ static gpointer TF_connect_server(gpointer data) {
         StringAssignFormat(&loginui.status, "Can't reach server '%s'", serverhost);
         loginui.loginbtn_active = TRUE;
         update_ui();
-        goto ret;
+
+        freeaddrinfo(ai);
+        return NULL;
     }
     int fd = socket0(ai->ai_family, ai->ai_socktype | SOCK_NONBLOCK, ai->ai_protocol);
     if (fd == -1) {
         StringAssignFormat(&loginui.status, "Can't create socket for '%s'", serverhost);
         loginui.loginbtn_active = TRUE;
         update_ui();
-        goto ret;
+
+        freeaddrinfo(ai);
+        return NULL;
     }
     int yes=1;
-    z = setsockopt0(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+    setsockopt0(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
 
     z = connect0(fd, ai->ai_addr, ai->ai_addrlen);
+    freeaddrinfo(ai);
     if (z == 0)
         goto connected;
-    if (z < 0 && errno != EINPROGRESS)
-        goto connect_fail;
+    if (z < 0 && errno != EINPROGRESS) {
+        update_connect_fail_ui();
+        shutdown(fd, SHUT_RDWR);
+        close(fd);
+        return NULL;
+    }
     if (z == -1 && errno == EINPROGRESS) {
         fd_set writefds;
         FD_ZERO(&writefds);
@@ -196,16 +224,18 @@ static gpointer TF_connect_server(gpointer data) {
                 StringAssignFormat(&loginui.status, "Timeout connecting to '%s'", serverhost);
                 loginui.loginbtn_active = TRUE;
                 update_ui();
-
                 shutdown(fd, SHUT_RDWR);
                 close(fd);
-                goto ret;
+                return NULL;
             }
             if (zz == -1 && errno == EINTR)
                 continue;
             if (zz == -1) {
                 fprintf(stderr, "select(): %s\n", strerror(errno));
-                goto connect_fail;
+                update_connect_fail_ui();
+                shutdown(fd, SHUT_RDWR);
+                close(fd);
+                return NULL;
             }
             assert(zz > 0);
             break;
@@ -217,27 +247,21 @@ static gpointer TF_connect_server(gpointer data) {
         int zz = getsockopt0(fd, SOL_SOCKET, SO_ERROR, &err, &errlen);
         if (zz != 0) {
             fprintf(stderr, "nonblocking connect() error: getsockopt() failed\n");
-            goto connect_fail;
+            update_connect_fail_ui();
+            shutdown(fd, SHUT_RDWR);
+            close(fd);
+            return NULL;
         } else if (err != 0) {
             fprintf(stderr, "nonblocking connect() error: %s\n", strerror(err));
-            goto connect_fail;
-        } else {
-            // Connection success
-            goto connected;
+            update_connect_fail_ui();
+            shutdown(fd, SHUT_RDWR);
+            close(fd);
+            return NULL;
         }
-        goto ret;
     }
 
-connect_fail:
-    StringAssignFormat(&loginui.status, "Can't connect to '%s'", serverhost);
-    loginui.loginbtn_active = TRUE;
-    update_ui();
-
-    shutdown(fd, SHUT_RDWR);
-    close(fd);
-    goto ret;
-
 connected:
+    // Socket connected
     StringAssignFormat(&loginui.status, "Connected to %s", serverhost);
     loginui.loginbtn_active = TRUE;
     update_ui();
@@ -250,11 +274,12 @@ connected:
 
     GThreadFunc nextfunc = (GThreadFunc) data;
     if (nextfunc)
-        g_thread_new("TF_connect_server_nextfunc", nextfunc, NULL);
+        g_thread_new("TF_connect_nextfunc", nextfunc, NULL);
 
-ret:
-    if (ai)
-        freeaddrinfo(ai);
+    select_wait(fd);
+
+    // If control reached here, it means server socket was closed.
+    hostctx.fd = -1;
     return NULL;
 }
 
@@ -271,7 +296,7 @@ gpointer TF_login(gpointer data) {
         StringAssignFormat(&loginui.status, "Connecting to %s...", serverhost);
         loginui.loginbtn_active = FALSE;
         update_ui();
-        TF_connect_server(TF_login);
+        TF_connect(TF_login);
         return NULL;
     }
 
@@ -307,26 +332,16 @@ gboolean SF_send_login(gpointer data) {
     return G_SOURCE_REMOVE;
 }
 
-gpointer TF_select(gpointer data) {
+void select_wait(int fd) {
     int z;
     fd_set readfds, writefds;
     fd_set readfds0, writefds0;
     int maxfd=0;
 
-start:
-    printf("TF_select()\n");
-    if (hostctx.fd == -1) {
-        StringAssignFormat(&loginui.status, "Connecting to %s...", serverhost);
-        loginui.loginbtn_active = FALSE;
-        update_ui();
-        TF_connect_server(TF_select);
-        return NULL;
-    }
-
     FD_ZERO(&readfds);
     FD_ZERO(&writefds);
-    FD_SET(hostctx.fd, &readfds);
-    maxfd = hostctx.fd;
+    FD_SET(fd, &readfds);
+    maxfd = fd;
 
     while (1) {
         readfds0 = readfds;
@@ -342,8 +357,8 @@ start:
         }
 
         int read_eof = 0;
-        if (FD_ISSET(hostctx.fd, &readfds0)) {
-            if (NetRecv(hostctx.fd, &hostctx.readbuf) == 0)
+        if (FD_ISSET(fd, &readfds0)) {
+            if (NetRecv(fd, &hostctx.readbuf) == 0)
                 read_eof = 1;
 
             // Each message is a 16bit msglen value followed by msglen sequence of bytes.
@@ -366,7 +381,7 @@ start:
                 } else {
                     // Read msg body (msglen bytes)
                     if (readbuf->len >= hostctx.msglen) {
-//                        on_host_recv_msg(&hostctx, readbuf->bs, hostctx.msglen, &writefds, &maxfd);
+                        on_recv_msg(&hostctx, readbuf->bs, hostctx.msglen, &writefds, &maxfd);
                         BufferShift(readbuf, hostctx.msglen);
                         hostctx.msglen = 0;
                         continue;
@@ -375,37 +390,88 @@ start:
                 }
             }
             if (read_eof) {
-//                on_host_eof(&hostctx);
-                FD_CLR(hostctx.fd, &readfds);
-                shutdown(hostctx.fd, SHUT_RD);
+                on_read_eof(&hostctx);
+                FD_CLR(fd, &readfds);
+                shutdown(fd, SHUT_RD);
                 hostctx.shut_rd = 1;
 
                 // Close serverfd if no remaining reads and writes.
                 if (hostctx.writebuf.len == 0) {
-                    FD_CLR(hostctx.fd, &writefds);
-                    shutdown(hostctx.fd, SHUT_WR);
+                    FD_CLR(fd, &writefds);
+                    shutdown(fd, SHUT_WR);
                     goto ret;
                 }
             }
         }
-        if (FD_ISSET(hostctx.fd, &writefds0)) {
-            z = NetSend2(hostctx.fd, &hostctx.writebuf, &writefds, &maxfd);
+        if (FD_ISSET(fd, &writefds0)) {
+            z = NetSend2(fd, &hostctx.writebuf, &writefds, &maxfd);
 
             // Close serverfd if no remaining reads and writes.
             if (z == 0 && hostctx.shut_rd) {
-                shutdown(hostctx.fd, SHUT_WR);
+                shutdown(fd, SHUT_WR);
                 goto ret;
             }
         }
     }
 
 ret:
-    // Close server socket and try getting a new connection.
-    close(hostctx.fd);
-    hostctx.fd = -1;
-    goto start;
-//    g_thread_new("TF_select", TF_Select, NULL);
+    close(fd);
+    on_server_close(&hostctx);
+}
 
-    return NULL;
+void on_recv_msg(HostCtx *hostctx, char *msgbytes, u16 len, fd_set *writefds, int *maxfd) {
+    int z;
+    u8 msgno = MSGNO(msgbytes);
+    printf("on_recv_msg() msgno: %d\n", msgno);
+    if (msgno == 0)
+        return;
+
+    // Skip over msgno (first byte)
+    msgbytes++;
+    len--;
+
+    if (msgno == LOGINRESPMSG) {
+        String tok = StringNew0();
+        i8 retno;
+        String errorstr = StringNew0();
+
+        NetUnpack(msgbytes, len, "%s%b%s", &tok, &retno, &errorstr);
+        printf("** LOGINRESPMSG tok: '%.*s' retno: %d errorstr: '%.*s' **\n", tok.len, tok.bs, retno, errorstr.len, errorstr.bs);
+        LoginResponse *resp = malloc(sizeof(LoginResponse));
+        resp->msgno = msgno;
+        resp->tok = tok;
+        resp->retno = retno;
+        resp->errorstr = errorstr;
+
+        g_idle_add(SF_on_login_response, resp);
+    }
+}
+
+void on_read_eof(HostCtx *hostctx) {
+    printf("on_read_eof()\n");
+}
+
+void on_server_close(HostCtx *hostctx) {
+    printf("on_server_close()\n");
+}
+
+gboolean SF_on_login_response(gpointer data) {
+    LoginResponse *resp = data;
+
+    logintok = StringDup(resp->tok);
+
+    if (resp->retno == 0) {
+        set_statusbar(GTK_STATUSBAR(loginui.statusbar), "Logged on");
+        clear_controls(loginui.bodybox);
+    } else {
+        GtkWidget *dlg = gtk_message_dialog_new(GTK_WINDOW(mainwin), GTK_DIALOG_MODAL, GTK_MESSAGE_ERROR, GTK_BUTTONS_OK, "%s", resp->errorstr.bs);
+        gtk_dialog_run(GTK_DIALOG(dlg));
+        gtk_widget_destroy(dlg);
+
+        gtk_button_set_label(GTK_BUTTON(loginui.loginbtn), "Login");
+        gtk_widget_set_sensitive(loginui.loginbtn, TRUE);
+    }
+
+    return G_SOURCE_REMOVE;
 }
 

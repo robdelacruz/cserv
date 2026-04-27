@@ -23,4 +23,11 @@
 //   u8 retno;
 //   String errorstr;
 
+typedef struct {
+    u8 msgno;
+    String tok;
+    u8 retno;
+    String errorstr;
+} LoginResponse;
+
 #endif
