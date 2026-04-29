@@ -32,13 +32,13 @@ void on_host_recv_msg(HostCtx *hostctx, char *msgbytes, u16 len, fd_set *writefd
     msgbytes++;
     len--;
 
-    if (msgno == LOGINRESPMSG) {
+    if (msgno == LOGIN_RESPONSE) {
         String tok = StringNew0();
         i8 retno;
         String errorstr = StringNew0();
 
         NetUnpack(msgbytes, len, "%s%b%s", &tok, &retno, &errorstr);
-        printf("** LOGINRESPMSG tok: '%.*s' retno: %d errorstr: '%.*s' **\n", tok.len, tok.bs, retno, errorstr.len, errorstr.bs);
+        printf("** LOGIN_RESPONSE tok: '%.*s' retno: %d errorstr: '%.*s' **\n", tok.len, tok.bs, retno, errorstr.len, errorstr.bs);
 
         StringFree(&tok);
         StringFree(&errorstr);
@@ -85,7 +85,7 @@ int main(int argc, char *argv[]) {
 //    NetPackLen(&hostctx.writebuf, "%b%s%s", msgno, "robtwister", "password123");
 //    z = NetSend2(serverfd, &hostctx.writebuf, &writefds, &maxfd);
 
-    u8 msgno = LOGINMSG;
+    u8 msgno = LOGIN_REQUEST;
     NetPackLen(&hostctx.writebuf, "%b%s%s", msgno, "robtwister", "password123");
     z = NetSend2(serverfd, &hostctx.writebuf, &writefds, &maxfd);
 

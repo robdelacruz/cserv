@@ -4,7 +4,7 @@ CFLAGS+= -Wno-deprecated-declarations -Wno-unused-function -Wno-unused-variable 
 GTK_CFLAGS=`pkg-config --cflags gtk+-3.0`
 GTK_LIBS=`pkg-config --libs gtk+-3.0`
 
-SOURCE=t.c clib.c cnet.c sqlite3.o
+SOURCE=t.c db.c clib.c cnet.c sqlite3.o
 
 all: t
 
