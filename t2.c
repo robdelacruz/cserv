@@ -77,7 +77,7 @@ void print_hostctxs(Array a) {
     //HostCtx *hcs = CAST(a.items, HostCtx*);
     HostCtx *hcs = HOSTCTXS(a.items);
     for (int i=0; i < a.len; i++) {
-        printf("[%d] '%s': %d\n", i, hcs[i].alias.bs, hcs[i].fd);
+        printf("[%d] '%s': %d\n", i, hcs[i].username.bs, hcs[i].fd);
     }
 }
 
@@ -86,13 +86,13 @@ void testarray() {
     ArrayClear(&hostctxs);
 
     HostCtx hc = HostCtxNew(10);
-    hc.alias = StringNew("host 10");
+    hc.username = StringNew("host 10");
     ArrayAppend(&hostctxs, &hc);
     hc = HostCtxNew(11);
-    hc.alias = StringNew("host 11");
+    hc.username = StringNew("host 11");
     ArrayAppend(&hostctxs, &hc);
     hc = HostCtxNew(12);
-    hc.alias = StringNew("host 12");
+    hc.username = StringNew("host 12");
     ArrayAppend(&hostctxs, &hc);
     print_hostctxs(hostctxs);
     printf("\n");

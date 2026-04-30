@@ -38,8 +38,8 @@ int password_verify(String phrase, String hash) {
     return StringEquals(hash, data.output);
 }
 
-void generate_token(String alias, String pwd, String *tok) {
-    String s = StringDup(alias);
+void generate_token(String username, String pwd, String *tok) {
+    String s = StringDup(username);
     StringAppend(&s, pwd.bs);
     String hash = password_hash(s);
 
@@ -56,23 +56,23 @@ void initdb(char *dbfile) {
     if (z != 0)
         panic((char *) sqlite3_errmsg(db));
 
-    s = "CREATE TABLE IF NOT EXISTS user (userid INTEGER PRIMARY KEY NOT NULL, alias TEXT NOT NULL, password TEXT NOT NULL);"
+    s = "CREATE TABLE IF NOT EXISTS user (userid INTEGER PRIMARY KEY NOT NULL, username TEXT NOT NULL, password TEXT NOT NULL);"
         "CREATE TABLE IF NOT EXISTS msg (msgid INTEGER PRIMARY KEY NOT NULL, date INTEGER, text TEXT NOT NULL, userid_from INTEGER NOT NULL, userid_to INTEGER NOT NULL);";
     z = sqlite3_exec(db, s, 0, 0, &errstr);
     if (z != 0)
         panic(errstr);
 }
 
-int RegisterUser(String alias, String pwd, String *tok) {
+int RegisterUser(String username, String pwd, String *tok) {
     char *s;
     sqlite3_stmt *stmt;
 
     StringAssign(tok, "");
 
-    // Return error if user alias already exists.
-    s = "SELECT userid FROM user WHERE alias = ?";
+    // Return error if username already exists.
+    s = "SELECT userid FROM user WHERE username = ?";
     sqlite3_prepare_v2(db, s, -1, &stmt, 0);
-    sqlite3_bind_text(stmt, 1, alias.bs, -1, NULL);
+    sqlite3_bind_text(stmt, 1, username.bs, -1, NULL);
     if (sqlite3_step(stmt) == SQLITE_ROW) {
         sqlite3_finalize(stmt);
         return -1;
@@ -80,9 +80,9 @@ int RegisterUser(String alias, String pwd, String *tok) {
 
     // Create new user
     String pwdhash = password_hash(pwd);
-    s = "INSERT INTO user (alias, password) VALUES (?, ?);";
+    s = "INSERT INTO user (username, password) VALUES (?, ?);";
     sqlite3_prepare_v2(db, s, -1, &stmt, 0);
-    sqlite3_bind_text(stmt, 1, alias.bs, -1, NULL);
+    sqlite3_bind_text(stmt, 1, username.bs, -1, NULL);
     sqlite3_bind_text(stmt, 2, pwdhash.bs, -1, NULL);
     if (sqlite3_step(stmt) != SQLITE_DONE) {
         sqlite3_finalize(stmt);
@@ -92,21 +92,21 @@ int RegisterUser(String alias, String pwd, String *tok) {
     StringFree(&pwdhash);
     sqlite3_finalize(stmt);
 
-    generate_token(alias, pwd, tok);
+    generate_token(username, pwd, tok);
     return 0;
 }
 
-int LoginUser(String alias, String pwd, String *tok) {
-    printf("LoginUser() alias: '%s' pwd: '%s'\n", alias.bs, pwd.bs);
+int LoginUser(String username, String pwd, String *tok) {
+    printf("LoginUser() username: '%s' pwd: '%s'\n", username.bs, pwd.bs);
     char *s;
     sqlite3_stmt *stmt;
 
     StringAssign(tok, "");
 
-    // Return error if user alias doesn't exist.
-    s = "SELECT password FROM user WHERE alias = ?";
+    // Return error if username doesn't exist.
+    s = "SELECT password FROM user WHERE username = ?";
     sqlite3_prepare_v2(db, s, -1, &stmt, 0);
-    sqlite3_bind_text(stmt, 1, alias.bs, -1, NULL);
+    sqlite3_bind_text(stmt, 1, username.bs, -1, NULL);
     if (sqlite3_step(stmt) != SQLITE_ROW) {
         sqlite3_finalize(stmt);
         return -1;
@@ -120,7 +120,7 @@ int LoginUser(String alias, String pwd, String *tok) {
     }
 
     sqlite3_finalize(stmt);
-    generate_token(alias, pwd, tok);
+    generate_token(username, pwd, tok);
     return 0;
 }
 

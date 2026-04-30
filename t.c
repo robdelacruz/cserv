@@ -19,20 +19,17 @@
 #include "clib.h"
 #include "cnet.h"
 #include "msg.h"
+#include "db.h"
 
 #define DBFILE "cserve.db"
 
 HostCtx *FindHostCtxByFd(Array a, int fd);
-HostCtx *FindHostCtxByAlias(Array a, char *alias);
 void RemoveHostCtxByFd(Array *a, int fd);
 
 String password_hash(String phrase);
 int password_verify(String phrase, String hash);
 
 void initdb(char *dbfile);
-void generate_token(String alias, String pwd, String *tok);
-int RegisterUser(String alias, String pwd, String *tok);
-int LoginUser(String alias, String pwd, String *tok);
 
 void on_host_connected(HostCtx *hostctx);
 void on_host_recv_msg(HostCtx *hostctx, char *msgbytes, u16 len, fd_set *writefds, int *maxfd);
@@ -213,53 +210,53 @@ void on_host_recv_msg(HostCtx *hostctx, char *msgbytes, u16 len, fd_set *writefd
     len--;
 
     if (msgno == REGISTER_REQUEST) {
-        String alias = StringNew0();
+        String username = StringNew0();
         String pwd = StringNew0();
         String tok = StringNew0();
-        String zstatus = StringNew0();
+        String errortext = StringNew0();
 
-        NetUnpack(msgbytes, len, "%s%s", &alias, &pwd);
-        printf("** REGISTER_REQUEST alias: '%.*s' pwd: '%.*s' **\n", alias.len, alias.bs, pwd.len, pwd.bs);
+        NetUnpack(msgbytes, len, "%s%s", &username, &pwd);
+        printf("** REGISTER_REQUEST username: '%.*s' pwd: '%.*s' **\n", username.len, username.bs, pwd.len, pwd.bs);
 
-        z = RegisterUser(alias, pwd, &tok);
+        z = RegisterUser(username, pwd, &tok);
         if (z == 0)
-            StringAssign(&zstatus, "OK");
+            StringAssign(&errortext, "OK");
         else if (z == -1)
-            StringAssignFormat(&zstatus, "Alias '%s' already taken", alias.bs);
+            StringAssignFormat(&errortext, "Username '%s' already taken", username.bs);
         else
-            StringAssign(&zstatus, "Error creating new user");
+            StringAssign(&errortext, "Error creating new user");
 
-        NetPackLen(&hostctx->writebuf, "%b%s%b%s", LOGIN_RESPONSE, tok.bs, z, zstatus.bs);
+        NetPackLen(&hostctx->writebuf, "%b%s%b%s", LOGIN_RESPONSE, tok.bs, z, errortext.bs);
         NetSend2(hostctx->fd, &hostctx->writebuf, writefds, maxfd);
 
-        StringFree(&alias);
+        StringFree(&username);
         StringFree(&pwd);
         StringFree(&tok);
-        StringFree(&zstatus);
+        StringFree(&errortext);
     } else if (msgno == LOGIN_REQUEST) {
-        String alias = StringNew0();
+        String username = StringNew0();
         String pwd = StringNew0();
         String tok = StringNew0();
-        String zstatus = StringNew0();
+        String errortext = StringNew0();
 
-        NetUnpack(msgbytes, len, "%s%s", &alias, &pwd);
-        printf("** LOGIN_REQUEST alias: '%.*s' pwd: '%.*s' **\n", alias.len, alias.bs, pwd.len, pwd.bs);
+        NetUnpack(msgbytes, len, "%s%s", &username, &pwd);
+        printf("** LOGIN_REQUEST username: '%.*s' pwd: '%.*s' **\n", username.len, username.bs, pwd.len, pwd.bs);
 
-        z = LoginUser(alias, pwd, &tok);
+        z = LoginUser(username, pwd, &tok);
         if (z == 0)
-            StringAssign(&zstatus, "OK");
+            StringAssign(&errortext, "OK");
         else if (z == -1)
-            StringAssign(&zstatus, "User doesn't exist");
+            StringAssign(&errortext, "User doesn't exist");
         else
-            StringAssign(&zstatus, "Login incorrect");
+            StringAssign(&errortext, "Login incorrect");
 
-        NetPackLen(&hostctx->writebuf, "%b%s%b%s", LOGIN_RESPONSE, tok.bs, z, zstatus.bs);
+        NetPackLen(&hostctx->writebuf, "%b%s%b%s", LOGIN_RESPONSE, tok.bs, z, errortext.bs);
         NetSend2(hostctx->fd, &hostctx->writebuf, writefds, maxfd);
 
-        StringFree(&alias);
+        StringFree(&username);
         StringFree(&pwd);
         StringFree(&tok);
-        StringFree(&zstatus);
+        StringFree(&errortext);
     }
 }
 
@@ -267,14 +264,6 @@ HostCtx *FindHostCtxByFd(Array a, int fd) {
     HostCtx *hostctxs = (HostCtx *) a.items;
     for (int i=0; i < a.len; i++) {
         if (hostctxs[i].fd == fd)
-            return &hostctxs[i];
-    }
-    return NULL;
-}
-HostCtx *FindHostCtxByAlias(Array a, char *alias) {
-    HostCtx *hostctxs = (HostCtx *) a.items;
-    for (int i=0; i < a.len; i++) {
-        if (StringEquals(hostctxs[i].alias, alias))
             return &hostctxs[i];
     }
     return NULL;

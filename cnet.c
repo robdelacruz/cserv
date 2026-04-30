@@ -391,13 +391,13 @@ HostCtx HostCtxNew(int fd) {
     hostctx.msglen = 0;
     hostctx.shut_rd = 0;
     hostctx.shut_wr = 0;
-    hostctx.alias = StringNew("");
+    hostctx.username = StringNew("");
     return hostctx;
 }
 void HostCtxFree(HostCtx *hostctx) {
     hostctx->fd = 0;
     BufferFree(&hostctx->readbuf);
     BufferFree(&hostctx->writebuf);
-    StringFree(&hostctx->alias);
+    StringFree(&hostctx->username);
 }
 

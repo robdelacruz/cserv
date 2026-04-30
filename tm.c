@@ -351,10 +351,10 @@ gboolean SF_send_login(gpointer data) {
     FD_SET(hostctx.fd, &readfds);
     maxfd = hostctx.fd;
 
-    char *alias = (char *) gtk_entry_get_text(GTK_ENTRY(ui.login_username_entry));
+    char *username = (char *) gtk_entry_get_text(GTK_ENTRY(ui.login_username_entry));
     char *password = (char *) gtk_entry_get_text(GTK_ENTRY(ui.login_password_entry));
     u8 msgno = LOGIN_REQUEST;
-    NetPackLen(&hostctx.writebuf, "%b%s%s", msgno, alias, password);
+    NetPackLen(&hostctx.writebuf, "%b%s%s", msgno, username, password);
     z = NetSend2(hostctx.fd, &hostctx.writebuf, &writefds, &maxfd);
 
     StringAssignFormat(&ui.statusbar_text, "Waiting for response...");
@@ -465,15 +465,15 @@ void on_recv_msg(HostCtx *hostctx, char *msgbytes, u16 len, fd_set *writefds, in
     if (msgno == LOGIN_RESPONSE) {
         String tok = StringNew0();
         i8 retno;
-        String errorstr = StringNew0();
+        String errortext = StringNew0();
 
-        NetUnpack(msgbytes, len, "%s%b%s", &tok, &retno, &errorstr);
-        printf("** LOGIN_RESPONSE tok: '%.*s' retno: %d errorstr: '%.*s' **\n", tok.len, tok.bs, retno, errorstr.len, errorstr.bs);
-        LoginResponse *resp = malloc(sizeof(LoginResponse));
+        NetUnpack(msgbytes, len, "%s%b%s", &tok, &retno, &errortext);
+        printf("** LOGIN_RESPONSE tok: '%.*s' retno: %d errortext: '%.*s' **\n", tok.len, tok.bs, retno, errortext.len, errortext.bs);
+        LoginUserResponse *resp = malloc(sizeof(LoginUserResponse));
         resp->msgno = msgno;
         resp->tok = tok;
         resp->retno = retno;
-        resp->errorstr = errorstr;
+        resp->errortext = errortext;
 
         g_idle_add(SF_on_login_response, resp);
     }
@@ -488,7 +488,7 @@ void on_server_close(HostCtx *hostctx) {
 }
 
 gboolean SF_on_login_response(gpointer data) {
-    LoginResponse *resp = data;
+    LoginUserResponse *resp = data;
 
     StringAssign(&session.tok, resp->tok.bs);
 
@@ -496,7 +496,7 @@ gboolean SF_on_login_response(gpointer data) {
         set_statusbar(GTK_STATUSBAR(ui.statusbar), "Logged on");
         clear_controls(ui.contentbox);
     } else {
-        GtkWidget *dlg = gtk_message_dialog_new(GTK_WINDOW(ui.mainwin), GTK_DIALOG_MODAL, GTK_MESSAGE_ERROR, GTK_BUTTONS_OK, "%s", resp->errorstr.bs);
+        GtkWidget *dlg = gtk_message_dialog_new(GTK_WINDOW(ui.mainwin), GTK_DIALOG_MODAL, GTK_MESSAGE_ERROR, GTK_BUTTONS_OK, "%s", resp->errortext.bs);
         gtk_dialog_run(GTK_DIALOG(dlg));
         gtk_widget_destroy(dlg);
 
@@ -505,7 +505,7 @@ gboolean SF_on_login_response(gpointer data) {
     }
 
     StringFree(&resp->tok);
-    StringFree(&resp->errorstr);
+    StringFree(&resp->errortext);
     free(resp);
 
     return G_SOURCE_REMOVE;

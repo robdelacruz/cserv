@@ -10,29 +10,57 @@
 // REGISTERMSG
 typedef struct {
     u8 msgno;
-    String alias;
+    String username;
     String pwd;
-} RegisterRequest;
+} RegisterUserRequest;
 
 // LOGINMSG
 typedef struct {
     u8 msgno;
-    String alias;
+    String username;
     String pwd;
-} LoginRequest;
+} LoginUserRequest;
 
 // LOGINRESPMSG
 typedef struct {
     u8 msgno;
     String tok;
     u8 retno;
-    String errorstr;
-} LoginResponse;
+    String errortext;
+} LoginUserResponse;
 
 typedef struct {
     u8 msgno;
-    String alias;
+    String tok;
+} GetContactsRequest;
+
+typedef struct {
+    u8 msgno;
+    String tok;
+} GetOnlineContactsRequest;
+
+typedef struct {
+    u8 msgno;
+    String tok;
+    String searchtext;
+} SearchUsernameRequest;
+
+typedef struct {
+    u8 msgno;
+    String usernames;
+} UsernamesResponse;
+
+typedef struct {
+    u8 msgno;
+    String tok;
+    String username;
     String message;
-} ContactRequest;
+} AddContactRequest;
+
+typedef struct {
+    u8 msgno;
+    u8 retno;
+    String errortext;
+} StatusResponse;
 
 #endif

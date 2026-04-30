@@ -19,7 +19,7 @@ typedef struct {
     u16 msglen;
     int shut_rd;
     int shut_wr;
-    String alias;
+    String username;
 } HostCtx;
 
 int getaddrinfo0(const char *node, const char *service, const struct addrinfo *hints, struct addrinfo **res);
