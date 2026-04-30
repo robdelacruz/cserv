@@ -353,7 +353,7 @@ gboolean SF_send_login(gpointer data) {
 
     char *username = (char *) gtk_entry_get_text(GTK_ENTRY(ui.login_username_entry));
     char *password = (char *) gtk_entry_get_text(GTK_ENTRY(ui.login_password_entry));
-    u8 msgno = LOGIN_REQUEST;
+    u8 msgno = LOGINUSER_REQUEST;
     NetPackLen(&hostctx.writebuf, "%b%s%s", msgno, username, password);
     z = NetSend2(hostctx.fd, &hostctx.writebuf, &writefds, &maxfd);
 
@@ -462,13 +462,13 @@ void on_recv_msg(HostCtx *hostctx, char *msgbytes, u16 len, fd_set *writefds, in
     msgbytes++;
     len--;
 
-    if (msgno == LOGIN_RESPONSE) {
+    if (msgno == LOGINUSER_RESPONSE) {
         String tok = StringNew0();
         i8 retno;
         String errortext = StringNew0();
 
         NetUnpack(msgbytes, len, "%s%b%s", &tok, &retno, &errortext);
-        printf("** LOGIN_RESPONSE tok: '%.*s' retno: %d errortext: '%.*s' **\n", tok.len, tok.bs, retno, errortext.len, errortext.bs);
+        printf("** LOGINUSER_RESPONSE tok: '%.*s' retno: %d errortext: '%.*s' **\n", tok.len, tok.bs, retno, errortext.len, errortext.bs);
         LoginUserResponse *resp = malloc(sizeof(LoginUserResponse));
         resp->msgno = msgno;
         resp->tok = tok;

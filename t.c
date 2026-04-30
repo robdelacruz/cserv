@@ -209,7 +209,7 @@ void on_host_recv_msg(HostCtx *hostctx, char *msgbytes, u16 len, fd_set *writefd
     msgbytes++;
     len--;
 
-    if (msgno == REGISTER_REQUEST) {
+    if (msgno == REGISTERUSER_REQUEST) {
         String username = StringNew0();
         String pwd = StringNew0();
         String tok = StringNew0();
@@ -226,14 +226,14 @@ void on_host_recv_msg(HostCtx *hostctx, char *msgbytes, u16 len, fd_set *writefd
         else
             StringAssign(&errortext, "Error creating new user");
 
-        NetPackLen(&hostctx->writebuf, "%b%s%b%s", LOGIN_RESPONSE, tok.bs, z, errortext.bs);
+        NetPackLen(&hostctx->writebuf, "%b%s%b%s", REGISTERUSER_RESPONSE, tok.bs, z, errortext.bs);
         NetSend2(hostctx->fd, &hostctx->writebuf, writefds, maxfd);
 
         StringFree(&username);
         StringFree(&pwd);
         StringFree(&tok);
         StringFree(&errortext);
-    } else if (msgno == LOGIN_REQUEST) {
+    } else if (msgno == LOGINUSER_REQUEST) {
         String username = StringNew0();
         String pwd = StringNew0();
         String tok = StringNew0();
@@ -250,7 +250,7 @@ void on_host_recv_msg(HostCtx *hostctx, char *msgbytes, u16 len, fd_set *writefd
         else
             StringAssign(&errortext, "Login incorrect");
 
-        NetPackLen(&hostctx->writebuf, "%b%s%b%s", LOGIN_RESPONSE, tok.bs, z, errortext.bs);
+        NetPackLen(&hostctx->writebuf, "%b%s%b%s", LOGINUSER_RESPONSE, tok.bs, z, errortext.bs);
         NetSend2(hostctx->fd, &hostctx->writebuf, writefds, maxfd);
 
         StringFree(&username);
