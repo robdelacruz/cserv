@@ -36,7 +36,9 @@ typedef struct {
     gboolean btnbox_isenabled;
     GtkWidget *statusbar;
     String statusbar_text;
-    GtkWidget *login_register_menuitem;
+    GtkWidget *login_menuitem;
+    GtkWidget *logout_menuitem;
+    GtkWidget *register_menuitem;
 
     GtkWidget *login_username_entry;
     GtkWidget *login_password_entry;
@@ -66,7 +68,10 @@ static void update_connect_fail_ui();
 static gpointer TF_connect(gpointer data);
 void select_wait(int fd);
 
-void CB_file_login_register(GtkWidget *w, gpointer data);
+void CB_login_menuitem(GtkWidget *w, gpointer data);
+void CB_logout_menuitem(GtkWidget *w, gpointer data);
+void CB_register_menuitem(GtkWidget *w, gpointer data);
+
 void CB_login_clicked(GtkWidget *w, gpointer data);
 void CB_register_clicked(GtkWidget *w, gpointer data);
 gpointer TF_login(gpointer data);
@@ -102,8 +107,6 @@ int main(int argc, char *argv[]) {
     create_login_ui();
     g_thread_new("TF_connect", TF_connect, NULL);
 
-    gtk_widget_show_all(ui.mainwin);
-
     gtk_main();
     return 0;
 }
@@ -120,10 +123,14 @@ void create_main_frame() {
     GtkWidget *menubar = gtk_menu_bar_new();
     GtkWidget *filemenu = gtk_menu_new();
     GtkWidget *filemi = gtk_menu_item_new_with_mnemonic("_File");
-    GtkWidget *login_register_menuitem = gtk_menu_item_new_with_mnemonic("_Register New Account");
+    GtkWidget *login_menuitem = gtk_menu_item_new_with_mnemonic("_Login");
+    GtkWidget *logout_menuitem = gtk_menu_item_new_with_mnemonic("Log_out");
+    GtkWidget *register_menuitem = gtk_menu_item_new_with_mnemonic("_Register");
     GtkWidget *quitmi = gtk_menu_item_new_with_mnemonic("_Quit");
     gtk_menu_item_set_submenu(GTK_MENU_ITEM(filemi), filemenu);
-    gtk_menu_shell_append(GTK_MENU_SHELL(filemenu), login_register_menuitem);
+    gtk_menu_shell_append(GTK_MENU_SHELL(filemenu), login_menuitem);
+    gtk_menu_shell_append(GTK_MENU_SHELL(filemenu), register_menuitem);
+    gtk_menu_shell_append(GTK_MENU_SHELL(filemenu), logout_menuitem);
     gtk_menu_shell_append(GTK_MENU_SHELL(filemenu), quitmi);
     gtk_menu_shell_append(GTK_MENU_SHELL(menubar), filemi);
     GtkWidget *statusbar = gtk_statusbar_new();
@@ -138,7 +145,9 @@ void create_main_frame() {
     gtk_box_pack_start(GTK_BOX(framebox), contentbox, FALSE, FALSE, 0);
     gtk_box_pack_end(GTK_BOX(framebox), statusbar, FALSE, FALSE, 0);
 
-    g_signal_connect(G_OBJECT(login_register_menuitem), "activate", G_CALLBACK(CB_file_login_register), NULL);
+    g_signal_connect(G_OBJECT(login_menuitem), "activate", G_CALLBACK(CB_login_menuitem), NULL);
+    g_signal_connect(G_OBJECT(logout_menuitem), "activate", G_CALLBACK(CB_logout_menuitem), NULL);
+    g_signal_connect(G_OBJECT(register_menuitem), "activate", G_CALLBACK(CB_register_menuitem), NULL);
     g_signal_connect(G_OBJECT(quitmi), "activate", G_CALLBACK(gtk_main_quit), NULL);
     g_signal_connect(mainwin, "destroy", G_CALLBACK(gtk_main_quit), NULL);
 
@@ -150,7 +159,9 @@ void create_main_frame() {
     ui.statusbar_text = StringNew0();
     ui.active_win = NONE;
     ui.btnbox = NULL;
-    ui.login_register_menuitem = login_register_menuitem;
+    ui.login_menuitem = login_menuitem;
+    ui.logout_menuitem = logout_menuitem;
+    ui.register_menuitem = register_menuitem;
 }
 
 void create_login_ui() {
@@ -174,19 +185,18 @@ void create_login_ui() {
     gtk_box_pack_start(GTK_BOX(ui.contentbox), txtpassword, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(btnbox), loginbtn, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(ui.contentbox), btnbox, FALSE, FALSE, 10);
-    gtk_widget_set_sensitive(btnbox, FALSE);
-
-    gtk_menu_item_set_label(GTK_MENU_ITEM(ui.login_register_menuitem), "_Register New Account");
 
     ui.active_win = LOGINWIN;
     ui.btnbox = btnbox;
     ui.login_username_entry = txtusername;
     ui.login_password_entry = txtpassword;
     ui.login_loginbtn = loginbtn;
-    ui.btnbox_isenabled = FALSE;
+    ui.btnbox_isenabled = TRUE;
 
-    set_statusbar(GTK_STATUSBAR(ui.statusbar), "Connecting to %s...", serverhost);
-    gtk_widget_set_sensitive(ui.btnbox, FALSE);
+    gtk_widget_show_all(ui.mainwin);
+    gtk_widget_hide(ui.login_menuitem);
+    gtk_widget_hide(ui.logout_menuitem);
+    gtk_widget_show(ui.register_menuitem);
 
     g_signal_connect(G_OBJECT(loginbtn), "clicked", G_CALLBACK(CB_login_clicked), NULL);
 }
@@ -216,19 +226,18 @@ void create_register_ui() {
     gtk_box_pack_start(GTK_BOX(ui.contentbox), txtpassword2, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(btnbox), registerbtn, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(ui.contentbox), btnbox, FALSE, FALSE, 10);
-    gtk_widget_set_sensitive(btnbox, FALSE);
-
-    gtk_menu_item_set_label(GTK_MENU_ITEM(ui.login_register_menuitem), "_Login");
 
     ui.active_win = REGISTERWIN;
     ui.btnbox = btnbox;
     ui.register_username_entry = txtusername;
     ui.register_password_entry = txtpassword;
     ui.register_registerbtn = registerbtn;
-    ui.btnbox_isenabled = FALSE;
+    ui.btnbox_isenabled = TRUE;
 
-    set_statusbar(GTK_STATUSBAR(ui.statusbar), "Connecting to %s...", serverhost);
-    gtk_widget_set_sensitive(ui.btnbox, FALSE);
+    gtk_widget_show_all(ui.mainwin);
+    gtk_widget_show(ui.login_menuitem);
+    gtk_widget_hide(ui.logout_menuitem);
+    gtk_widget_hide(ui.register_menuitem);
 
     g_signal_connect(G_OBJECT(registerbtn), "clicked", G_CALLBACK(CB_register_clicked), NULL);
 }
@@ -237,15 +246,16 @@ void CB_register_clicked(GtkWidget *w, gpointer data) {
 }
 
 
-void CB_file_login_register(GtkWidget *w, gpointer data) {
-    if (ui.active_win == LOGINWIN)
-        create_register_ui();
-    else
-        create_login_ui();
-
-    gtk_widget_set_sensitive(ui.btnbox, FALSE);
-    gtk_widget_show_all(ui.mainwin);
+void CB_login_menuitem(GtkWidget *w, gpointer data) {
+    create_login_ui();
 }
+void CB_logout_menuitem(GtkWidget *w, gpointer data) {
+    create_login_ui();
+}
+void CB_register_menuitem(GtkWidget *w, gpointer data) {
+    create_register_ui();
+}
+
 void CB_login_clicked(GtkWidget *w, gpointer data) {
     gtk_widget_set_sensitive(ui.btnbox, FALSE);
 
@@ -272,6 +282,10 @@ static gpointer TF_connect(gpointer data) {
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_PASSIVE;
+
+    StringAssignFormat(&ui.statusbar_text, "Connecting to %s...'", serverhost);
+    ui.btnbox_isenabled = FALSE;
+    g_idle_add(SF_update_loginui, NULL);
 
     // getaddrinfo() will block if an unreachable serverhost (Ex. 'abcdomain') is given.
     z = getaddrinfo0(serverhost, serverport, &hints, &ai);
