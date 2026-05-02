@@ -48,6 +48,8 @@ typedef struct {
     GtkWidget *register_password_entry;
     GtkWidget *register_registerbtn;
 
+    GtkWidget *contacts_contacts;
+
     GtkWidget *main_contacts_listbox;
     WindowID active_win;
 } UILedger;
@@ -61,6 +63,7 @@ typedef struct {
 void create_main_frame();
 void create_login_ui();
 void create_register_ui();
+void create_contacts_ui();
 
 static gboolean SF_update_loginui(gpointer data);
 static void update_connect_fail_ui();
@@ -75,7 +78,6 @@ void CB_register_menuitem(GtkWidget *w, gpointer data);
 void CB_login_clicked(GtkWidget *w, gpointer data);
 void CB_register_clicked(GtkWidget *w, gpointer data);
 gpointer TF_login(gpointer data);
-gboolean SF_send_login(gpointer data);
 
 void on_recv_msg(HostCtx *hostctx, char *msgbytes, u16 len, fd_set *writefds, int *maxfd);
 void on_read_eof(HostCtx *hostctx);
@@ -242,6 +244,60 @@ void create_register_ui() {
     g_signal_connect(G_OBJECT(registerbtn), "clicked", G_CALLBACK(CB_register_clicked), NULL);
 }
 
+GtkWidget *create_contact_label(char *username) {
+    String s = StringNew0();
+    StringAssignFormat(&s, "%s", username);
+
+    GtkWidget *lbl = gtk_label_new("");
+    gtk_label_set_markup(GTK_LABEL(lbl), s.bs);
+
+    gtk_widget_set_halign(lbl, GTK_ALIGN_START);
+    gtk_widget_set_valign(lbl, GTK_ALIGN_CENTER);
+    set_widget_margins(lbl, 8,8, 5,5);
+
+    StringFree(&s);
+    return lbl;
+}
+
+void create_contacts_ui() {
+    String s = StringNew0();
+
+    clear_controls(ui.contentbox);
+
+    gtk_window_set_title(GTK_WINDOW(ui.mainwin), "Contacts");
+
+    StringAssign(&session.username, "robtwister");
+    StringAssignFormat(&s, "<b><big>%s</big></b>", session.username.bs);
+    GtkWidget *lbluser = create_label1("");
+    gtk_label_set_markup(GTK_LABEL(lbluser), s.bs);
+
+    GtkWidget *lblcaption = create_label1("");
+    gtk_label_set_markup(GTK_LABEL(lblcaption), "<span background=\"lightgrey\" foreground=\"black\">Contacts</span>");
+    GtkWidget *contacts = gtk_list_box_new();
+
+    set_widget_margins(ui.contentbox, 5, 5, 5, 5);
+    gtk_box_pack_start(GTK_BOX(ui.contentbox), lbluser, FALSE, FALSE, 4);
+    gtk_box_pack_start(GTK_BOX(ui.contentbox), lblcaption, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(ui.contentbox), contacts, TRUE, TRUE, 0);
+
+    // abcuser, buddy123, hey_snoopy
+    GtkWidget *lbl = create_contact_label("⚪ <span style=\"italic\" foreground=\"darkgrey\">abcuser</span>");
+    gtk_container_add(GTK_CONTAINER(contacts), lbl);
+    lbl = create_contact_label("🟢 buddy123");
+    gtk_container_add(GTK_CONTAINER(contacts), lbl);
+    lbl = create_contact_label("🟢 hey_snoopy");
+    gtk_container_add(GTK_CONTAINER(contacts), lbl);
+
+    ui.active_win = CONTACTSWIN;
+    ui.btnbox = NULL;
+    ui.contacts_contacts = contacts;
+
+    gtk_widget_show_all(ui.mainwin);
+    gtk_widget_hide(ui.login_menuitem);
+    gtk_widget_show(ui.logout_menuitem);
+    gtk_widget_hide(ui.register_menuitem);
+}
+
 void CB_register_clicked(GtkWidget *w, gpointer data) {
 }
 
@@ -257,8 +313,6 @@ void CB_register_menuitem(GtkWidget *w, gpointer data) {
 }
 
 void CB_login_clicked(GtkWidget *w, gpointer data) {
-    gtk_widget_set_sensitive(ui.btnbox, FALSE);
-
     g_thread_new("TF_login", TF_login, NULL);
 }
 static gboolean SF_update_loginui(gpointer data) {
@@ -393,56 +447,6 @@ connected:
     return NULL;
 }
 
-gboolean SF_show_connect_error(gpointer data) {
-    GtkWidget *dlg = gtk_message_dialog_new(NULL, GTK_DIALOG_MODAL, GTK_MESSAGE_ERROR, GTK_BUTTONS_OK, "Error connecting to %s", serverhost);
-    gtk_dialog_run(GTK_DIALOG(dlg));
-    gtk_widget_destroy(dlg);
-
-    return G_SOURCE_REMOVE;
-}
-
-gpointer TF_login(gpointer data) {
-    if (hostctx.fd == -1) {
-        StringAssignFormat(&ui.statusbar_text, "Connecting to %s...", serverhost);
-        ui.btnbox_isenabled = FALSE;
-        g_idle_add(SF_update_loginui, NULL);
-
-        TF_connect(TF_login);
-        return NULL;
-    }
-
-    StringAssignFormat(&ui.statusbar_text, "Logging in...");
-    ui.btnbox_isenabled = FALSE;
-    g_idle_add(SF_update_loginui, NULL);
-
-    g_idle_add(SF_send_login, NULL);
-    return NULL;
-}
-
-gboolean SF_send_login(gpointer data) {
-    fd_set readfds, writefds;
-    fd_set readfds0, writefds0;
-    int maxfd=0;
-    int z;
-
-    FD_ZERO(&readfds);
-    FD_ZERO(&writefds);
-    FD_SET(hostctx.fd, &readfds);
-    maxfd = hostctx.fd;
-
-    char *username = (char *) gtk_entry_get_text(GTK_ENTRY(ui.login_username_entry));
-    char *password = (char *) gtk_entry_get_text(GTK_ENTRY(ui.login_password_entry));
-    u8 msgno = LOGINUSER_REQUEST;
-    NetPackLen(&hostctx.writebuf, "%b%s%s", msgno, username, password);
-    z = NetSend2(hostctx.fd, &hostctx.writebuf, &writefds, &maxfd);
-
-    StringAssignFormat(&ui.statusbar_text, "Waiting for response...");
-    ui.btnbox_isenabled = FALSE;
-    g_idle_add(SF_update_loginui, NULL);
-
-    return G_SOURCE_REMOVE;
-}
-
 void select_wait(int fd) {
     int z;
     fd_set readfds, writefds;
@@ -530,6 +534,48 @@ ret:
     on_server_close(&hostctx);
 }
 
+
+gboolean SF_show_connect_error(gpointer data) {
+    GtkWidget *dlg = gtk_message_dialog_new(NULL, GTK_DIALOG_MODAL, GTK_MESSAGE_ERROR, GTK_BUTTONS_OK, "Error connecting to %s", serverhost);
+    gtk_dialog_run(GTK_DIALOG(dlg));
+    gtk_widget_destroy(dlg);
+
+    return G_SOURCE_REMOVE;
+}
+
+gpointer TF_login(gpointer data) {
+    if (hostctx.fd == -1) {
+        TF_connect(TF_login);
+        return NULL;
+    }
+
+    StringAssignFormat(&ui.statusbar_text, "Logging in...");
+    ui.btnbox_isenabled = FALSE;
+    g_idle_add(SF_update_loginui, NULL);
+
+    fd_set readfds, writefds;
+    fd_set readfds0, writefds0;
+    int maxfd=0;
+    int z;
+
+    FD_ZERO(&readfds);
+    FD_ZERO(&writefds);
+    FD_SET(hostctx.fd, &readfds);
+    maxfd = hostctx.fd;
+
+    char *username = (char *) gtk_entry_get_text(GTK_ENTRY(ui.login_username_entry));
+    char *password = (char *) gtk_entry_get_text(GTK_ENTRY(ui.login_password_entry));
+    u8 msgno = LOGINUSER_REQUEST;
+    NetPackLen(&hostctx.writebuf, "%b%s%s", msgno, username, password);
+    z = NetSend2(hostctx.fd, &hostctx.writebuf, &writefds, &maxfd);
+
+    StringAssignFormat(&ui.statusbar_text, "Waiting for response...");
+    ui.btnbox_isenabled = FALSE;
+    g_idle_add(SF_update_loginui, NULL);
+
+    return NULL;
+}
+
 void on_recv_msg(HostCtx *hostctx, char *msgbytes, u16 len, fd_set *writefds, int *maxfd) {
     int z;
     u8 msgno = MSGNO(msgbytes);
@@ -574,6 +620,8 @@ gboolean SF_on_login_response(gpointer data) {
     if (resp->retno == 0) {
         set_statusbar(GTK_STATUSBAR(ui.statusbar), "Logged on");
         clear_controls(ui.contentbox);
+
+        create_contacts_ui();
     } else {
         GtkWidget *dlg = gtk_message_dialog_new(GTK_WINDOW(ui.mainwin), GTK_DIALOG_MODAL, GTK_MESSAGE_ERROR, GTK_BUTTONS_OK, "%s", resp->errortext.bs);
         gtk_dialog_run(GTK_DIALOG(dlg));

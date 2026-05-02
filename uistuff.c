@@ -8,6 +8,12 @@ GtkWidget *create_label1(char *caption) {
     gtk_widget_set_valign(lbl, GTK_ALIGN_END);
     return lbl;
 }
+GtkWidget *create_label2(char *caption) {
+    GtkWidget *lbl = gtk_label_new(caption);
+    gtk_widget_set_halign(lbl, GTK_ALIGN_START);
+    gtk_widget_set_valign(lbl, GTK_ALIGN_CENTER);
+    return lbl;
+}
 
 GtkWidget *create_center_button(char *caption) {
     GtkWidget *btn = gtk_button_new_with_label(caption);
