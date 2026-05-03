@@ -49,7 +49,7 @@ typedef struct {
     GtkWidget *register_password_entry;
     GtkWidget *register_registerbtn;
 
-    GtkWidget *contacts_contacts;
+    GtkWidget *contacts_list;
 
     GtkWidget *main_contacts_listbox;
     WindowID active_win;
@@ -78,6 +78,8 @@ void CB_register_menuitem(GtkWidget *w, gpointer data);
 void CB_login_clicked(GtkWidget *w, gpointer data);
 void CB_register_clicked(GtkWidget *w, gpointer data);
 gpointer TF_login(gpointer data);
+
+static gpointer TF_refresh_contacts(gpointer data);
 
 void on_recv_msg(HostCtx *hostctx, char *msgbytes, u16 len, fd_set *writefds, int *maxfd);
 void on_read_eof(HostCtx *hostctx);
@@ -291,26 +293,26 @@ void create_contacts_ui() {
     GtkWidget *lbluser = create_label1("");
     gtk_label_set_markup(GTK_LABEL(lbluser), s.bs);
 
-    GtkWidget *contacts_frame = gtk_frame_new("");
-    GtkWidget *contacts = gtk_list_box_new();
-    gtk_container_add(GTK_CONTAINER(contacts_frame), contacts);
-    set_widget_margins(contacts_frame, 2,2, 2,2);
+    GtkWidget *frame = gtk_frame_new("");
+    GtkWidget *list = gtk_list_box_new();
+    gtk_container_add(GTK_CONTAINER(frame), list);
+    set_widget_margins(frame, 2,2, 2,2);
 
     set_widget_margins(ui.contentbox, 5, 5, 5, 5);
     gtk_box_pack_start(GTK_BOX(ui.contentbox), lbluser, FALSE, FALSE, 4);
-    gtk_box_pack_start(GTK_BOX(ui.contentbox), contacts_frame, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(ui.contentbox), frame, TRUE, TRUE, 0);
 
     // abcuser, buddy123, hey_snoopy
     GtkWidget *lbl = create_contact_label("⚪ <span style=\"italic\" foreground=\"darkgrey\">abcuser</span>");
-    gtk_container_add(GTK_CONTAINER(contacts), lbl);
+    gtk_container_add(GTK_CONTAINER(list), lbl);
     lbl = create_contact_label("🟢 buddy123");
-    gtk_container_add(GTK_CONTAINER(contacts), lbl);
+    gtk_container_add(GTK_CONTAINER(list), lbl);
     lbl = create_contact_label("🟢 hey_snoopy");
-    gtk_container_add(GTK_CONTAINER(contacts), lbl);
+    gtk_container_add(GTK_CONTAINER(list), lbl);
 
     ui.active_win = CONTACTSWIN;
     ui.btnbox = NULL;
-    ui.contacts_contacts = contacts;
+    ui.contacts_list = list;
 
     gtk_widget_show_all(ui.mainwin);
     gtk_widget_hide(ui.login_menuitem);
@@ -318,6 +320,8 @@ void create_contacts_ui() {
     gtk_widget_hide(ui.register_menuitem);
 
     StringFree(&s);
+
+    g_thread_new("TF_refresh_contacts", TF_refresh_contacts, NULL);
 }
 
 void CB_register_clicked(GtkWidget *w, gpointer data) {
@@ -655,3 +659,6 @@ gboolean SF_on_login_response(gpointer data) {
     return G_SOURCE_REMOVE;
 }
 
+static gpointer TF_refresh_contacts(gpointer data) {
+    return NULL;
+}

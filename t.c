@@ -243,9 +243,10 @@ void on_host_recv_msg(HostCtx *hostctx, char *msgbytes, u16 len, fd_set *writefd
         printf("** LOGIN_REQUEST username: '%.*s' pwd: '%.*s' **\n", username.len, username.bs, pwd.len, pwd.bs);
 
         z = LoginUser(username, pwd, &tok);
-        if (z == 0)
+        if (z == 0) {
             StringAssign(&errortext, "OK");
-        else if (z == -1)
+            StringAssign(&hostctx->username, username.bs);
+        } else if (z == -1)
             StringAssign(&errortext, "User doesn't exist");
         else
             StringAssign(&errortext, "Login incorrect");
@@ -257,6 +258,14 @@ void on_host_recv_msg(HostCtx *hostctx, char *msgbytes, u16 len, fd_set *writefd
         StringFree(&pwd);
         StringFree(&tok);
         StringFree(&errortext);
+    } else if (msgno == GETCONTACTS_REQUEST) {
+        String tok = StringNew0();
+
+        NetUnpack(msgbytes, len, "%s", &tok);
+//        if (!validate_token(hostctx.username, hostctx.pwdhash, tok)) {
+//        }
+
+        StringFree(&tok);
     }
 }
 

@@ -38,15 +38,24 @@ int password_verify(String phrase, String hash) {
     return StringEquals(hash, data.output);
 }
 
-void generate_token(String username, String pwd, String *tok) {
+void generate_token(String username, String pwdhash, String *tok) {
     String s = StringDup(username);
-    StringAppend(&s, pwd.bs);
+    StringAppend(&s, pwdhash.bs);
     String hash = password_hash(s);
 
     StringAssign(tok, hash.bs);
 
     StringFree(&s);
     StringFree(&hash);
+}
+
+int validate_token(String username, String pwdhash, String tok) {
+    String s = StringDup(username);
+    StringAppend(&s, pwdhash.bs);
+
+    int z =  password_verify(s, tok);
+    StringFree(&s);
+    return z;
 }
 
 void initdb(char *dbfile) {
@@ -57,7 +66,7 @@ void initdb(char *dbfile) {
         panic((char *) sqlite3_errmsg(db));
 
     s = "CREATE TABLE IF NOT EXISTS user (userid INTEGER PRIMARY KEY NOT NULL, username TEXT NOT NULL, password TEXT NOT NULL);"
-        "CREATE TABLE IF NOT EXISTS msg (msgid INTEGER PRIMARY KEY NOT NULL, date INTEGER, text TEXT NOT NULL, userid_from INTEGER NOT NULL, userid_to INTEGER NOT NULL);";
+        "CREATE TABLE IF NOT EXISTS usercontact (userid INTEGER PRIMARY KEY NOT NULL, contactid INTEGER NOT NULL);";
     z = sqlite3_exec(db, s, 0, 0, &errstr);
     if (z != 0)
         panic(errstr);
@@ -92,7 +101,7 @@ int RegisterUser(String username, String pwd, String *tok) {
     StringFree(&pwdhash);
     sqlite3_finalize(stmt);
 
-    generate_token(username, pwd, tok);
+    generate_token(username, pwdhash, tok);
     return 0;
 }
 
@@ -123,4 +132,8 @@ int LoginUser(String username, String pwd, String *tok) {
     generate_token(username, pwd, tok);
     return 0;
 }
+
+void GetUserContacts(int userid, Array *contacts) {
+}
+
 
