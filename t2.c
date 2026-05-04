@@ -110,7 +110,7 @@ void testarray() {
 
 }
 
-int main(int argc, char *argv[]) {
+void splittest() {
     String s = StringNew("abc; def; ghi;  ");
     Array toks = StringSplit(s, "; ");
 
@@ -120,6 +120,97 @@ int main(int argc, char *argv[]) {
     printf("\n");
 
     ArrayFree(&toks);
+}
+
+void string0test() {
+    char bytes[] = "abcdefg";
+    String s1 = {0};
+    String s2 = {0};
+    String s3 = {0};
+
+    StringFree(&s1);
+    printf("s1 a: '%.*s'\n", s1.len, s1.bs);
+    printf("s1 b: '%s'\n", CSTR(s1));
+
+    StringAppend(&s2, "abc");
+    printf("s2 a: '%.*s'\n", s2.len, s2.bs);
+    printf("s2 b: '%s'\n", CSTR(s2));
+
+    s2 = (String) {0};
+    printf("s2 a: '%.*s'\n", s2.len, s2.bs);
+    printf("s2 b: '%s'\n", CSTR(s2));
+
+    s2 = StringNew0();
+    printf("s2 a: '%.*s'\n", s2.len, s2.bs);
+    printf("s2 b: '%s'\n", CSTR(s2));
+    StringAssign(&s2, "abc");
+    printf("s2 b: '%s'\n", CSTR(s2));
+
+    s1 = (String) {0};
+    s2 = StringDup(s1);
+    printf("s2 a: '%.*s'\n", s2.len, s2.bs);
+    printf("s2 b: '%s'\n", CSTR(s2));
+    StringAssign(&s1, "abc");
+    s2 = StringDup(s1);
+    StringAssign(&s1, "def");
+    printf("s2 a: '%.*s'\n", s2.len, s2.bs);
+    printf("s2 b: '%s'\n", CSTR(s2));
+
+    s2 = (String) {0};
+    StringAssignFromBytes(&s2, bytes, sizeof(bytes));
+    printf("s2 a: '%.*s'\n", s2.len, s2.bs);
+
+    s2 = (String) {0};
+    StringAssignFormat(&s2, "Hello bytes '%s'\n", bytes);
+    printf("s2 a: '%.*s'\n", s2.len, s2.bs);
+
+    s2 = (String) {0};
+    int ifound = StringSearch(s2, 0, "abc");
+    printf("ifound: %d\n", ifound);
+    ifound = StringSearch(s2, 1, "abc");
+    printf("ifound: %d\n", ifound);
+    StringAssign(&s2, "ABCabcDEFdef");
+    ifound = StringSearch(s2, 0, "abc");
+    printf("ifound: %d\n", ifound);
+    ifound = StringSearch(s2, 2, "abc");
+    printf("ifound: %d\n", ifound);
+    ifound = StringSearch(s2, 3, "abc");
+    printf("ifound: %d\n", ifound);
+    ifound = StringSearch(s2, 4, "abc");
+    printf("ifound: %d\n", ifound);
+
+    s2 = (String) {0};
+    int iequals = StringEquals(s2, "a");
+    printf("iequals: %d\n", iequals);
+    iequals = StringEquals(s2, "");
+    printf("iequals: %d\n", iequals);
+    s1 = (String) {0};
+    iequals = StringEquals(s2, CSTR(s1));
+    printf("iequals: %d\n", iequals);
+    StringAssign(&s1, "abc");
+    iequals = StringEquals(s2, CSTR(s1));
+    printf("iequals: %d\n", iequals);
+
+    s2 = (String) {0};
+    Array ss = StringSplit(s2, ";");
+    printf("ss.len: %d\n", ss.len);
+    String *ssitems = (String *) ss.items;
+    for (int i=0; i < ss.len; i++)
+        printf("ss[%d]: '%s'\n", i, CSTR(ssitems[i]));
+
+    s2 = (String) {0};
+    StringTrim(s2);
+    printf("s2 a: '%.*s'\n", s2.len, s2.bs);
+    s2 = StringNew(" ");
+    StringTrim(s2);
+    printf("s2 b: '%.*s'\n", s2.len, s2.bs);
+    s2 = StringNew(" abc   ");
+    StringTrim(s2);
+    printf("s2 b: '%.*s'\n", s2.len, s2.bs);
+}
+
+
+int main(int argc, char *argv[]) {
 
     return 0;
 }

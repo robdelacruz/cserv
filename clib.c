@@ -70,10 +70,7 @@ void ArenaGet(Arena *a, void *dest, u32 offset, u32 size) {
 }
 
 String StringNew0() {
-    String str;
-    str.len = 0;
-    str.bs = (char *) malloc0(1);
-    str.bs[0] = 0;
+    String str = {0};
     return str;
 }
 String StringNew(char *s) {

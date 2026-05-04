@@ -5,6 +5,7 @@
 #define memzero(p, v) (memset(p, 0, sizeof(v)))
 #define CAST(v, type) ((type) (v))
 #define STRING(p) ((String) {p, strlen(p)})
+#define CSTR(str) (str.bs? str.bs : "")
 
 typedef char i8;
 typedef short i16;
