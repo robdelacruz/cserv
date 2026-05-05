@@ -216,7 +216,7 @@ void on_host_recv_msg(HostCtx *hostctx, char *msgbytes, u16 len, fd_set *writefd
         String errortext = StringNew0();
 
         NetUnpack(msgbytes, len, "%s%s", &username, &pwd);
-        printf("** REGISTER_REQUEST username: '%.*s' pwd: '%.*s' **\n", username.len, username.bs, pwd.len, pwd.bs);
+        printf("** REGISTERUSER_REQUEST username: '%s' pwd: '%s' **\n", CSTR(username), CSTR(pwd));
 
         z = RegisterUser(username, pwd, &tok);
         if (z == 0)
@@ -226,7 +226,7 @@ void on_host_recv_msg(HostCtx *hostctx, char *msgbytes, u16 len, fd_set *writefd
         else
             StringAssign(&errortext, "Error creating new user");
 
-        NetPackLen(&hostctx->writebuf, "%b%s%b%s", REGISTERUSER_RESPONSE, tok.bs, z, errortext.bs);
+        NetPackLen(&hostctx->writebuf, "%b%s%s%b%s", REGISTERUSER_RESPONSE, tok.bs, username.bs, z, errortext.bs);
         NetSend2(hostctx->fd, &hostctx->writebuf, writefds, maxfd);
 
         StringFree(&username);
@@ -240,7 +240,7 @@ void on_host_recv_msg(HostCtx *hostctx, char *msgbytes, u16 len, fd_set *writefd
         String errortext = StringNew0();
 
         NetUnpack(msgbytes, len, "%s%s", &username, &pwd);
-        printf("** LOGIN_REQUEST username: '%.*s' pwd: '%.*s' **\n", username.len, username.bs, pwd.len, pwd.bs);
+        printf("** LOGIN_REQUEST username: '%s' pwd: '%s' **\n", CSTR(username), CSTR(pwd));
 
         z = LoginUser(username, pwd, &tok);
         if (z == 0) {
@@ -251,7 +251,7 @@ void on_host_recv_msg(HostCtx *hostctx, char *msgbytes, u16 len, fd_set *writefd
         else
             StringAssign(&errortext, "Login incorrect");
 
-        NetPackLen(&hostctx->writebuf, "%b%s%b%s", LOGINUSER_RESPONSE, tok.bs, z, errortext.bs);
+        NetPackLen(&hostctx->writebuf, "%b%s%s%b%s", LOGINUSER_RESPONSE, tok.bs, username.bs, z, errortext.bs);
         NetSend2(hostctx->fd, &hostctx->writebuf, writefds, maxfd);
 
         StringFree(&username);
@@ -266,6 +266,7 @@ void on_host_recv_msg(HostCtx *hostctx, char *msgbytes, u16 len, fd_set *writefd
 //        }
 
         StringFree(&tok);
+    } else if (msgno == SEARCHUSERNAME_REQUEST) {
     }
 }
 

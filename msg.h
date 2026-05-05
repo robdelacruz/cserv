@@ -31,6 +31,7 @@ typedef struct {
 typedef struct {
     u8 msgno;
     String tok;
+    String username;
     u8 retno;
     String errortext;
 } RegisterUserResponse;
@@ -46,6 +47,7 @@ typedef struct {
 typedef struct {
     u8 msgno;
     String tok;
+    String username;
     u8 retno;
     String errortext;
 } LoginUserResponse;

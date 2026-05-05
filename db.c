@@ -98,10 +98,10 @@ int RegisterUser(String username, String pwd, String *tok) {
         StringFree(&pwdhash);
         return -2;
     }
-    StringFree(&pwdhash);
     sqlite3_finalize(stmt);
 
     generate_token(username, pwdhash, tok);
+    StringFree(&pwdhash);
     return 0;
 }
 

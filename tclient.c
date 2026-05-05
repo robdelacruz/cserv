@@ -82,7 +82,7 @@ int main(int argc, char *argv[]) {
 
     // Try sending some message to server
     u8 msgno = REGISTERUSER_REQUEST;
-    NetPackLen(&hostctx.writebuf, "%b%s%s", msgno, "rob", "abc");
+    NetPackLen(&hostctx.writebuf, "%b%s%s", msgno, "user6", "abc");
     z = NetSend2(serverfd, &hostctx.writebuf, &writefds, &maxfd);
 
 //    u8 msgno = LOGINUSER_REQUEST;
