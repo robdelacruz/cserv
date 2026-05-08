@@ -40,6 +40,10 @@ int connect0(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
     return z;
 }
 
+void CloseSocketFull(int fd) {
+    shutdown(fd, SHUT_RDWR);
+    close(fd);
+}
 int CreateNonBlockingSocket(char *host, char *port, struct sockaddr *sa) {
     int z;
     struct addrinfo hints, *ai;
@@ -385,14 +389,23 @@ void NetUnpack(char *bs, int bslen, char *fmt, ...) {
 HostCtx HostCtxNew(int fd) {
     HostCtx hostctx;
     hostctx.fd = fd;
-    hostctx.seq = 0;
     hostctx.readbuf = BufferNew(4096);
     hostctx.writebuf = BufferNew(4096);
     hostctx.msglen = 0;
     hostctx.shut_rd = 0;
     hostctx.shut_wr = 0;
     hostctx.username = StringNew("");
+    hostctx.pwdhash = StringNew("");
     return hostctx;
+}
+void HostCtxClear(HostCtx *hostctx) {
+    BufferClear(&hostctx->readbuf);
+    BufferClear(&hostctx->writebuf);
+    hostctx->msglen = 0;
+    hostctx->shut_rd = 0;
+    hostctx->shut_wr = 0;
+    StringAssign(&hostctx->username, "");
+    StringAssign(&hostctx->pwdhash, "");
 }
 void HostCtxFree(HostCtx *hostctx) {
     hostctx->fd = 0;

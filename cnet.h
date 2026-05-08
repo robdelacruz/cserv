@@ -13,13 +13,13 @@
 
 typedef struct {
     int fd;
-    u16 seq;
     Buffer readbuf;
     Buffer writebuf;
     u16 msglen;
     int shut_rd;
     int shut_wr;
     String username;
+    String pwdhash;
 } HostCtx;
 
 int getaddrinfo0(const char *node, const char *service, const struct addrinfo *hints, struct addrinfo **res);
@@ -28,6 +28,7 @@ int getsockopt0(int sockfd, int level, int optname, void *optval, socklen_t *opt
 int setsockopt0(int sockfd, int level, int optname, const void *optval, socklen_t optlen);
 int connect0(int sockfd, const struct sockaddr *addr, socklen_t addrlen);
 
+void CloseSocketFull(int fd);
 int CreateNonBlockingSocket(char *host, char *port, struct sockaddr *sa);
 int OpenListenSocket(char *host, char *port, int backlog, struct sockaddr *sa);
 int OpenConnectSocket(char *host, char *port, int backlog, struct sockaddr *sa);
@@ -40,6 +41,7 @@ int NetPackLen(Buffer *buf, char *fmt, ...);
 void NetUnpack(char *bs, int bslen, char *fmt, ...);
 
 HostCtx HostCtxNew(int fd);
+void HostCtxClear(HostCtx *hostctx);
 void HostCtxFree(HostCtx *hostctx);
 
 #endif

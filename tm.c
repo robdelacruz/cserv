@@ -189,8 +189,7 @@ static gpointer THREAD_connect(gpointer data) {
         goto connected;
     if (z < 0 && errno != EINPROGRESS) {
         update_connect_fail_ui();
-        shutdown(fd, SHUT_RDWR);
-        close(fd);
+        CloseSocketFull(fd);
         return NULL;
     }
     if (z == -1 && errno == EINPROGRESS) {
@@ -207,8 +206,7 @@ static gpointer THREAD_connect(gpointer data) {
                 StringAssignFormat(&G_ui.statusbar_text, "Timeout connecting to '%s'", G_serverhost);
                 g_idle_add(IDLE_enable_window, NULL);
 
-                shutdown(fd, SHUT_RDWR);
-                close(fd);
+                CloseSocketFull(fd);
                 return NULL;
             }
             if (zz == -1 && errno == EINTR)
@@ -216,8 +214,7 @@ static gpointer THREAD_connect(gpointer data) {
             if (zz == -1) {
                 fprintf(stderr, "select(): %s\n", strerror(errno));
                 update_connect_fail_ui();
-                shutdown(fd, SHUT_RDWR);
-                close(fd);
+                CloseSocketFull(fd);
                 return NULL;
             }
             assert(zz > 0);
@@ -231,14 +228,12 @@ static gpointer THREAD_connect(gpointer data) {
         if (zz != 0) {
             fprintf(stderr, "nonblocking connect() error: getsockopt() failed\n");
             update_connect_fail_ui();
-            shutdown(fd, SHUT_RDWR);
-            close(fd);
+            CloseSocketFull(fd);
             return NULL;
         } else if (err != 0) {
             fprintf(stderr, "nonblocking connect() error: %s\n", strerror(err));
             update_connect_fail_ui();
-            shutdown(fd, SHUT_RDWR);
-            close(fd);
+            CloseSocketFull(fd);
             return NULL;
         }
     }
@@ -249,8 +244,7 @@ connected:
     g_idle_add(IDLE_enable_window, NULL);
 
     if (G_hostctx.fd != -1) {
-        shutdown(G_hostctx.fd, SHUT_RDWR);
-        close(G_hostctx.fd);
+        CloseSocketFull(G_hostctx.fd);
     }
     G_hostctx.fd = fd;
 
@@ -313,13 +307,12 @@ connected:
             if (read_eof) {
                 on_read_eof();
                 FD_CLR(fd, &G_readfds);
-                shutdown(fd, SHUT_RD);
                 G_hostctx.shut_rd = 1;
 
                 // Close serverfd if no remaining reads and writes.
                 if (G_hostctx.writebuf.len == 0) {
                     FD_CLR(fd, &G_writefds);
-                    shutdown(fd, SHUT_WR);
+                    CloseSocketFull(fd);
                     goto ret;
                 }
             }
@@ -329,13 +322,12 @@ connected:
 
             // Close serverfd if no remaining reads and writes.
             if (z == 0 && G_hostctx.shut_rd) {
-                shutdown(fd, SHUT_WR);
+                CloseSocketFull(fd);
                 goto ret;
             }
         }
     }
 ret:
-    close(fd);
     on_server_close();
 
     // If control reached here, it means server socket was closed.
@@ -878,8 +870,7 @@ static int connect_to_server(char *serverhost, char *serverport) {
         goto connected;
     if (z < 0 && errno != EINPROGRESS) {
         update_connect_fail_ui();
-        shutdown(fd, SHUT_RDWR);
-        close(fd);
+        CloseSocketFull(fd);
         return -1;
     }
     if (z == -1 && errno == EINPROGRESS) {
@@ -896,8 +887,7 @@ static int connect_to_server(char *serverhost, char *serverport) {
                 StringAssignFormat(&G_ui.statusbar_text, "Timeout connecting to '%s'", serverhost);
                 g_idle_add(IDLE_enable_window, NULL);
 
-                shutdown(fd, SHUT_RDWR);
-                close(fd);
+                CloseSocketFull(fd);
                 return -1;
             }
             if (zz == -1 && errno == EINTR)
@@ -905,8 +895,7 @@ static int connect_to_server(char *serverhost, char *serverport) {
             if (zz == -1) {
                 fprintf(stderr, "select(): %s\n", strerror(errno));
                 update_connect_fail_ui();
-                shutdown(fd, SHUT_RDWR);
-                close(fd);
+                CloseSocketFull(fd);
                 return -1;
             }
             assert(zz > 0);
@@ -920,14 +909,12 @@ static int connect_to_server(char *serverhost, char *serverport) {
         if (zz != 0) {
             fprintf(stderr, "nonblocking connect() error: getsockopt() failed\n");
             update_connect_fail_ui();
-            shutdown(fd, SHUT_RDWR);
-            close(fd);
+            CloseSocketFull(fd);
             return -1;
         } else if (err != 0) {
             fprintf(stderr, "nonblocking connect() error: %s\n", strerror(err));
             update_connect_fail_ui();
-            shutdown(fd, SHUT_RDWR);
-            close(fd);
+            CloseSocketFull(fd);
             return -1;
         }
     }
@@ -965,8 +952,7 @@ static int wait_for_server_response(HostCtx *hostctx, gboolean is_remaining_writ
         if (z == 0) {
             StringAssignFormat(&G_ui.statusbar_text, "Timeout connecting to '%s'", G_serverhost);
             g_idle_add(IDLE_enable_window, NULL);
-            shutdown(hostctx->fd, SHUT_RDWR);
-            close(hostctx->fd);
+            CloseSocketFull(hostctx->fd);
             return -1;
         }
         if (z == -1 && errno == EINTR)
@@ -975,8 +961,7 @@ static int wait_for_server_response(HostCtx *hostctx, gboolean is_remaining_writ
             fprintf(stderr, "select(): %s\n", strerror(errno));
             StringAssignFormat(&G_ui.statusbar_text, "Network error");
             g_idle_add(IDLE_enable_window, NULL);
-            shutdown(hostctx->fd, SHUT_RDWR);
-            close(hostctx->fd);
+            CloseSocketFull(hostctx->fd);
             hostctx->fd = -1;
             return -1;
         }
@@ -1016,14 +1001,12 @@ static int wait_for_server_response(HostCtx *hostctx, gboolean is_remaining_writ
             }
             if (read_eof) {
                 FD_CLR(hostctx->fd, &readfds);
-                shutdown(hostctx->fd, SHUT_RD);
                 hostctx->shut_rd = 1;
 
                 // Close serverfd if no remaining reads and writes.
                 if (hostctx->writebuf.len == 0) {
                     FD_CLR(hostctx->fd, &writefds);
-                    shutdown(hostctx->fd, SHUT_WR);
-                    close(hostctx->fd);
+                    CloseSocketFull(hostctx->fd);
                     hostctx->fd = -1;
                     goto error;
                 }
@@ -1034,8 +1017,7 @@ static int wait_for_server_response(HostCtx *hostctx, gboolean is_remaining_writ
 
             // Close serverfd if no remaining reads and writes.
             if (z == 0 && hostctx->shut_rd) {
-                shutdown(hostctx->fd, SHUT_WR);
-                close(hostctx->fd);
+                CloseSocketFull(hostctx->fd);
                 goto error;
             }
         }
