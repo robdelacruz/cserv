@@ -4,3 +4,6 @@ for (GList *iter = children; iter != NULL; iter = g_list_next(iter))
     gtk_widget_destroy(iter->data);
 g_list_free(children);
 
+// Socket connection timeout
+https://stackoverflow.com/questions/2597608/c-socket-connection-timeout#2597774
+

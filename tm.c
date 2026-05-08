@@ -23,7 +23,8 @@ typedef enum {
     NONE=0,
     LOGINWIN=1,
     REGISTERWIN=2,
-    CONTACTSWIN=3
+    CONTACTSWIN=3,
+    INVITEWIN
 } WindowID;
 
 typedef struct {
@@ -41,12 +42,20 @@ typedef struct {
     GtkWidget *register_txtpassword2;
 
     GtkWidget *contacts_list;
+
+    GtkWidget *invite_txtsearch;
 } UIState;
 
 typedef struct {
     String username;
     String tok;
 } Session;
+
+typedef void (*MSGCALLBACK)(char *msgbytes, u16 len);
+
+static int connect_to_server(char *serverhost, char *serverport);
+static int wait_for_server_response(HostCtx *hostctx, gboolean is_remaining_write, struct timeval *timeout, MSGCALLBACK on_recv_msg);
+
 
 static gpointer THREAD_connect(gpointer data);
 static gboolean IDLE_enable_window(gpointer data);
@@ -65,9 +74,14 @@ static void create_contacts_ui();
 static GtkWidget *create_contact_label(char *username);
 static gpointer THREAD_refresh_contacts(gpointer data);
 
+static void create_invite_ui();
+static void CALLBACK_search_users(GtkWidget *w, gpointer data);
+static gpointer THREAD_search_users(gpointer data);
+
 static void CALLBACK_menu_login(GtkWidget *w, gpointer data);
 static void CALLBACK_menu_logout(GtkWidget *w, gpointer data);
 static void CALLBACK_menu_register(GtkWidget *w, gpointer data);
+static void CALLBACK_menu_contacts(GtkWidget *w, gpointer data);
 static void CALLBACK_menu_invite(GtkWidget *w, gpointer data);
 
 static void on_read_eof();
@@ -424,6 +438,7 @@ static void CALLBACK_login_clicked(GtkWidget *w, gpointer data) {
 
     g_thread_new("THREAD_login", THREAD_login, NULL);
 }
+#if 0
 static gpointer THREAD_login(gpointer data) {
     if (G_hostctx.fd == -1) {
         THREAD_connect(THREAD_login);
@@ -441,6 +456,34 @@ static gpointer THREAD_login(gpointer data) {
 
     StringAssignFormat(&G_ui.statusbar_text, "Waiting for response...");
     g_idle_add(IDLE_disable_window, NULL);
+
+    return NULL;
+}
+#endif
+static gpointer THREAD_login(gpointer data) {
+    if (G_hostctx.fd == -1) {
+        G_hostctx.fd = connect_to_server(G_serverhost, G_serverport);
+        if (G_hostctx.fd == -1)
+            return NULL;
+    }
+
+    StringAssignFormat(&G_ui.statusbar_text, "Logging in...");
+    g_idle_add(IDLE_disable_window, NULL);
+
+    char *username = (char *) gtk_entry_get_text(GTK_ENTRY(G_ui.login_txtusername));
+    char *password = (char *) gtk_entry_get_text(GTK_ENTRY(G_ui.login_txtpassword));
+    u8 msgno = LOGINUSER_REQUEST;
+    NetPackLen(&G_hostctx.writebuf, "%b%s%s", msgno, username, password);
+    int z = NetSend(G_hostctx.fd, &G_hostctx.writebuf);
+    gboolean is_remaining_write = FALSE;
+    if (z == 1)
+        is_remaining_write = TRUE;
+
+    z = wait_for_server_response(&G_hostctx, is_remaining_write, NULL, on_received_msg);
+    if (z == 0) {
+        StringAssignFormat(&G_ui.statusbar_text, "Success");
+        g_idle_add(IDLE_enable_window, NULL);
+    }
 
     return NULL;
 }
@@ -536,7 +579,7 @@ static void create_contacts_ui() {
     GtkWidget *filemenu = gtk_menu_new();
     GtkWidget *filemi = gtk_menu_item_new_with_mnemonic("_File");
     GtkWidget *logoutmi = gtk_menu_item_new_with_mnemonic("_Logout");
-    GtkWidget *invitemi = gtk_menu_item_new_with_mnemonic("_Invite...");
+    GtkWidget *invitemi = gtk_menu_item_new_with_mnemonic("_Invite");
     GtkWidget *quitmi = gtk_menu_item_new_with_mnemonic("_Quit");
     gtk_menu_item_set_submenu(GTK_MENU_ITEM(filemi), filemenu);
     gtk_menu_shell_append(GTK_MENU_SHELL(filemenu), logoutmi);
@@ -552,14 +595,14 @@ static void create_contacts_ui() {
     StringFree(&s);
 
     GtkWidget *list = gtk_list_box_new();
-    GtkWidget *frame = gtk_frame_new("");
-    gtk_container_add(GTK_CONTAINER(frame), list);
-    set_widget_margins(frame, 2,2, 2,2);
+    GtkWidget *listframe = gtk_frame_new("");
+    gtk_container_add(GTK_CONTAINER(listframe), list);
+    set_widget_margins(listframe, 2,2, 2,2);
 
     GtkWidget *contentbox = gtk_vbox_new(FALSE, 0);
     set_widget_margins(contentbox, 5, 5, 5, 5);
     gtk_box_pack_start(GTK_BOX(contentbox), lbluser, FALSE, FALSE, 4);
-    gtk_box_pack_start(GTK_BOX(contentbox), frame, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(contentbox), listframe, TRUE, TRUE, 0);
 
     // abcuser, buddy123, hey_snoopy
     GtkWidget *lbl = create_contact_label("⚪ <span style=\"italic\" foreground=\"darkgrey\">abcuser</span>");
@@ -609,6 +652,84 @@ static gpointer THREAD_refresh_contacts(gpointer data) {
     return NULL;
 }
 
+static void create_invite_ui() {
+    clear_controls(G_mainwin);
+
+    // Menu and statusbar
+    GtkWidget *menubar = gtk_menu_bar_new();
+    GtkWidget *filemenu = gtk_menu_new();
+    GtkWidget *filemi = gtk_menu_item_new_with_mnemonic("_File");
+    GtkWidget *logoutmi = gtk_menu_item_new_with_mnemonic("_Logout");
+    GtkWidget *contactsmi = gtk_menu_item_new_with_mnemonic("_Contacts");
+    GtkWidget *quitmi = gtk_menu_item_new_with_mnemonic("_Quit");
+    gtk_menu_item_set_submenu(GTK_MENU_ITEM(filemi), filemenu);
+    gtk_menu_shell_append(GTK_MENU_SHELL(filemenu), logoutmi);
+    gtk_menu_shell_append(GTK_MENU_SHELL(filemenu), contactsmi);
+    gtk_menu_shell_append(GTK_MENU_SHELL(menubar), filemi);
+    GtkWidget *statusbar = gtk_statusbar_new();
+
+    // Controls
+    GtkWidget *lbl = create_label1("Search usernames to invite");
+    GtkWidget *txtsearch = gtk_search_entry_new();
+    GtkWidget *listresults = gtk_list_box_new();
+    GtkWidget *listframe = gtk_frame_new("");
+    gtk_container_add(GTK_CONTAINER(listframe), listresults);
+
+    GtkWidget *contentbox = gtk_vbox_new(FALSE, 0);
+    set_widget_margins(contentbox, 10, 10, 5, 5);
+    gtk_box_pack_start(GTK_BOX(contentbox), lbl, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(contentbox), txtsearch, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(contentbox), listframe, TRUE, TRUE, 0);
+
+    GtkWidget *framebox = gtk_vbox_new(FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(framebox), menubar, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(framebox), contentbox, TRUE, TRUE, 0);
+    gtk_box_pack_end(GTK_BOX(framebox), statusbar, FALSE, FALSE, 0);
+    gtk_container_add(GTK_CONTAINER(G_mainwin), framebox);
+
+    G_ui.statusbar = statusbar;
+
+    G_ui.active_win = INVITEWIN;
+    G_ui.invite_txtsearch = txtsearch;
+
+    g_signal_connect(G_OBJECT(quitmi), "activate", G_CALLBACK(gtk_main_quit), NULL);
+    g_signal_connect(G_OBJECT(logoutmi), "activate", G_CALLBACK(CALLBACK_menu_logout), NULL);
+    g_signal_connect(G_OBJECT(contactsmi), "activate", G_CALLBACK(CALLBACK_menu_contacts), NULL);
+    g_signal_connect(G_OBJECT(txtsearch), "activate", G_CALLBACK(CALLBACK_search_users), NULL);
+
+    gtk_widget_set_sensitive(G_mainwin, TRUE);
+    gtk_widget_show_all(G_mainwin);
+}
+static void CALLBACK_search_users(GtkWidget *w, gpointer data) {
+    g_thread_new("THREAD_search_users", THREAD_search_users, NULL);
+}
+static gpointer THREAD_search_users(gpointer data) {
+    if (G_hostctx.fd == -1) {
+        G_hostctx.fd = connect_to_server(G_serverhost, G_serverport);
+        if (G_hostctx.fd == -1)
+            return NULL;
+    }
+
+    StringAssignFormat(&G_ui.statusbar_text, "Searching...");
+    g_idle_add(IDLE_disable_window, NULL);
+
+    char *searchstr = (char *) gtk_entry_get_text(GTK_ENTRY(G_ui.invite_txtsearch));
+    u8 msgno = SEARCHUSERNAME_REQUEST;
+    NetPackLen(&G_hostctx.writebuf, "%b%s%s", msgno, CSTR(G_session.tok), searchstr);
+    int z = NetSend(G_hostctx.fd, &G_hostctx.writebuf);
+    gboolean is_remaining_write = FALSE;
+    if (z == 1)
+        is_remaining_write = TRUE;
+
+    z = wait_for_server_response(&G_hostctx, is_remaining_write, NULL, on_received_msg);
+    if (z == 0) {
+        StringAssignFormat(&G_ui.statusbar_text, "Usernames returned");
+        g_idle_add(IDLE_enable_window, NULL);
+    }
+
+    return NULL;
+}
+
 static void CALLBACK_menu_login(GtkWidget *w, gpointer data) {
     create_login_ui("", "", FALSE);
 }
@@ -619,7 +740,11 @@ static void CALLBACK_menu_logout(GtkWidget *w, gpointer data) {
 static void CALLBACK_menu_register(GtkWidget *w, gpointer data) {
     create_register_ui();
 }
+static void CALLBACK_menu_contacts(GtkWidget *w, gpointer data) {
+    create_contacts_ui();
+}
 static void CALLBACK_menu_invite(GtkWidget *w, gpointer data) {
+    create_invite_ui();
 }
 
 static gboolean SF_show_connect_error(gpointer data) {
@@ -673,7 +798,8 @@ static gboolean IDLE_LoginUserResponse(gpointer data) {
     if (resp->retno == 0) {
         rename("cserv_session.tmp", "cserv_session.txt");
         set_statusbar(GTK_STATUSBAR(G_ui.statusbar), "Logged on");
-        create_contacts_ui();
+        //$$ create_contacts_ui();
+        create_invite_ui();
     } else {
         GtkWidget *dlg = gtk_message_dialog_new(GTK_WINDOW(G_mainwin), GTK_DIALOG_MODAL, GTK_MESSAGE_ERROR, GTK_BUTTONS_OK, "%s", resp->errortext.bs);
         gtk_dialog_run(GTK_DIALOG(dlg));
@@ -714,3 +840,214 @@ static gboolean IDLE_RegisterUserResponse(gpointer data) {
 
     return G_SOURCE_REMOVE;
 }
+
+static int connect_to_server(char *serverhost, char *serverport) {
+    int z;
+    struct addrinfo hints, *ai=NULL;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = AI_PASSIVE;
+
+    StringAssignFormat(&G_ui.statusbar_text, "Connecting to %s...'", serverhost);
+    g_idle_add(IDLE_disable_window, NULL);
+
+    // getaddrinfo() will block if an unreachable serverhost (Ex. 'abcdomain') is given.
+    z = getaddrinfo0(serverhost, serverport, &hints, &ai);
+    if (z != 0) {
+        StringAssignFormat(&G_ui.statusbar_text, "Can't reach server '%s'", serverhost);
+        g_idle_add(IDLE_enable_window, NULL);
+
+        freeaddrinfo(ai);
+        return -1;
+    }
+    int fd = socket0(ai->ai_family, ai->ai_socktype | SOCK_NONBLOCK, ai->ai_protocol);
+    if (fd == -1) {
+        StringAssignFormat(&G_ui.statusbar_text, "Can't create socket for '%s'", serverhost);
+        g_idle_add(IDLE_enable_window, NULL);
+
+        freeaddrinfo(ai);
+        return -1;
+    }
+    int yes=1;
+    setsockopt0(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+
+    z = connect0(fd, ai->ai_addr, ai->ai_addrlen);
+    freeaddrinfo(ai);
+    if (z == 0)
+        goto connected;
+    if (z < 0 && errno != EINPROGRESS) {
+        update_connect_fail_ui();
+        shutdown(fd, SHUT_RDWR);
+        close(fd);
+        return -1;
+    }
+    if (z == -1 && errno == EINPROGRESS) {
+        fd_set writefds;
+        FD_ZERO(&writefds);
+        FD_SET(fd, &writefds);
+
+        while (1) {
+//            g_usleep(2000000);
+            struct timeval timeout = {2, 0}; // timeout in 2 seconds
+            int zz = select(fd+1, NULL, &writefds, NULL, &timeout);
+            if (zz == 0) {
+                // Handle timeout
+                StringAssignFormat(&G_ui.statusbar_text, "Timeout connecting to '%s'", serverhost);
+                g_idle_add(IDLE_enable_window, NULL);
+
+                shutdown(fd, SHUT_RDWR);
+                close(fd);
+                return -1;
+            }
+            if (zz == -1 && errno == EINTR)
+                continue;
+            if (zz == -1) {
+                fprintf(stderr, "select(): %s\n", strerror(errno));
+                update_connect_fail_ui();
+                shutdown(fd, SHUT_RDWR);
+                close(fd);
+                return -1;
+            }
+            assert(zz > 0);
+            break;
+        }
+        assert(FD_ISSET(fd, &writefds));
+
+        int err=0;
+        socklen_t errlen = sizeof(err);
+        int zz = getsockopt0(fd, SOL_SOCKET, SO_ERROR, &err, &errlen);
+        if (zz != 0) {
+            fprintf(stderr, "nonblocking connect() error: getsockopt() failed\n");
+            update_connect_fail_ui();
+            shutdown(fd, SHUT_RDWR);
+            close(fd);
+            return -1;
+        } else if (err != 0) {
+            fprintf(stderr, "nonblocking connect() error: %s\n", strerror(err));
+            update_connect_fail_ui();
+            shutdown(fd, SHUT_RDWR);
+            close(fd);
+            return -1;
+        }
+    }
+
+connected:
+    // Socket connected
+    StringAssignFormat(&G_ui.statusbar_text, "Connected to %s", serverhost);
+    g_idle_add(IDLE_enable_window, NULL);
+
+    return fd;
+}
+
+static int wait_for_server_response(HostCtx *hostctx, gboolean is_remaining_write, struct timeval *timeout, MSGCALLBACK on_recv_msg) {
+    int z;
+    fd_set readfds;
+    fd_set writefds;
+    int maxfd = hostctx->fd;
+
+    FD_ZERO(&readfds);
+    FD_ZERO(&writefds);
+    FD_SET(hostctx->fd, &readfds);
+    if (is_remaining_write)
+        FD_SET(hostctx->fd, &writefds);
+
+    BufferClear(&hostctx->readbuf);
+    hostctx->msglen = 0;
+    hostctx->shut_rd = 0;
+
+    fd_set readfds0, writefds0;
+    while (1) {
+        readfds0 = readfds;
+        writefds0 = writefds;
+        z = select(maxfd+1, &readfds0, &writefds0, NULL, timeout);
+        // timeout
+        if (z == 0) {
+            StringAssignFormat(&G_ui.statusbar_text, "Timeout connecting to '%s'", G_serverhost);
+            g_idle_add(IDLE_enable_window, NULL);
+            shutdown(hostctx->fd, SHUT_RDWR);
+            close(hostctx->fd);
+            return -1;
+        }
+        if (z == -1 && errno == EINTR)
+            continue;
+        if (z == -1) {
+            fprintf(stderr, "select(): %s\n", strerror(errno));
+            StringAssignFormat(&G_ui.statusbar_text, "Network error");
+            g_idle_add(IDLE_enable_window, NULL);
+            shutdown(hostctx->fd, SHUT_RDWR);
+            close(hostctx->fd);
+            hostctx->fd = -1;
+            return -1;
+        }
+
+        int read_eof = 0;
+        if (FD_ISSET(hostctx->fd, &readfds0)) {
+            if (NetRecv(hostctx->fd, &hostctx->readbuf) == 0)
+                read_eof = 1;
+
+            // Each message is a 16bit msglen value followed by msglen sequence of bytes.
+            // A msglen of 0 means no more bytes remaining in the stream.
+
+            Buffer *readbuf = &hostctx->readbuf;
+            while (1) {
+                if (hostctx->msglen == 0) {
+                    if (readbuf->len >= sizeof(u16)) {
+                        u16 *bs = (u16 *) readbuf->bs;
+                        hostctx->msglen = ntohs(*bs);
+                        if (hostctx->msglen == 0) {
+                            read_eof = 1;
+                            break;
+                        }
+                        BufferShift(readbuf, sizeof(u16));
+                        continue;
+                    }
+                    break;
+                } else {
+                    // Read msg body (msglen bytes)
+                    if (readbuf->len >= hostctx->msglen) {
+                        on_recv_msg(readbuf->bs, hostctx->msglen);
+                        BufferShift(readbuf, hostctx->msglen);
+                        hostctx->msglen = 0;
+                        goto success;
+                    }
+                    break;
+                }
+            }
+            if (read_eof) {
+                FD_CLR(hostctx->fd, &readfds);
+                shutdown(hostctx->fd, SHUT_RD);
+                hostctx->shut_rd = 1;
+
+                // Close serverfd if no remaining reads and writes.
+                if (hostctx->writebuf.len == 0) {
+                    FD_CLR(hostctx->fd, &writefds);
+                    shutdown(hostctx->fd, SHUT_WR);
+                    close(hostctx->fd);
+                    hostctx->fd = -1;
+                    goto error;
+                }
+            }
+        }
+        if (FD_ISSET(hostctx->fd, &writefds0)) {
+            z = NetSend2(hostctx->fd, &hostctx->writebuf, &writefds, &maxfd);
+
+            // Close serverfd if no remaining reads and writes.
+            if (z == 0 && hostctx->shut_rd) {
+                shutdown(hostctx->fd, SHUT_WR);
+                close(hostctx->fd);
+                goto error;
+            }
+        }
+    }
+
+error:
+    StringAssignFormat(&G_ui.statusbar_text, "Server returned no response");
+    g_idle_add(IDLE_enable_window, NULL);
+    return -1;
+
+success:
+    return 0;
+}
+
+
