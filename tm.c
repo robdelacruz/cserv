@@ -940,8 +940,8 @@ static int wait_for_server_response(HostCtx *hostctx, gboolean is_remaining_writ
         FD_SET(hostctx->fd, &writefds);
 
     BufferClear(&hostctx->readbuf);
-    hostctx->msglen = 0;
-    hostctx->shut_rd = 0;
+    int msglen = 0;
+    int shut_rd = 0;
 
     fd_set readfds0, writefds0;
     while (1) {
@@ -976,11 +976,11 @@ static int wait_for_server_response(HostCtx *hostctx, gboolean is_remaining_writ
 
             Buffer *readbuf = &hostctx->readbuf;
             while (1) {
-                if (hostctx->msglen == 0) {
+                if (msglen == 0) {
                     if (readbuf->len >= sizeof(u16)) {
                         u16 *bs = (u16 *) readbuf->bs;
-                        hostctx->msglen = ntohs(*bs);
-                        if (hostctx->msglen == 0) {
+                        msglen = ntohs(*bs);
+                        if (msglen == 0) {
                             read_eof = 1;
                             break;
                         }
@@ -990,10 +990,10 @@ static int wait_for_server_response(HostCtx *hostctx, gboolean is_remaining_writ
                     break;
                 } else {
                     // Read msg body (msglen bytes)
-                    if (readbuf->len >= hostctx->msglen) {
-                        on_recv_msg(readbuf->bs, hostctx->msglen);
-                        BufferShift(readbuf, hostctx->msglen);
-                        hostctx->msglen = 0;
+                    if (readbuf->len >= msglen) {
+                        on_recv_msg(readbuf->bs, msglen);
+                        BufferShift(readbuf, msglen);
+                        msglen = 0;
                         goto success;
                     }
                     break;
@@ -1001,7 +1001,7 @@ static int wait_for_server_response(HostCtx *hostctx, gboolean is_remaining_writ
             }
             if (read_eof) {
                 FD_CLR(hostctx->fd, &readfds);
-                hostctx->shut_rd = 1;
+                shut_rd = 1;
 
                 // Close serverfd if no remaining reads and writes.
                 if (hostctx->writebuf.len == 0) {
@@ -1016,8 +1016,9 @@ static int wait_for_server_response(HostCtx *hostctx, gboolean is_remaining_writ
             z = NetSend2(hostctx->fd, &hostctx->writebuf, &writefds, &maxfd);
 
             // Close serverfd if no remaining reads and writes.
-            if (z == 0 && hostctx->shut_rd) {
+            if (z == 0 && shut_rd) {
                 CloseSocketFull(hostctx->fd);
+                hostctx->fd = -1;
                 goto error;
             }
         }
