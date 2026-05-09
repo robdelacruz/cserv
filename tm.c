@@ -54,8 +54,8 @@ typedef struct {
 typedef void (*MSGCALLBACK)(char *msgbytes, u16 len);
 
 static int connect_to_server(char *serverhost, char *serverport);
-static int wait_for_server_response(HostCtx *hostctx, gboolean is_remaining_write, struct timeval *timeout, MSGCALLBACK on_recv_msg);
-
+static int wait_for_message_to_be_sent(int fd, Buffer *writebuf, struct timeval *timeout_val);
+static int wait_for_response_message(int fd, struct timeval *timeout_val, MSGCALLBACK on_recv_msg);
 
 static gpointer THREAD_connect(gpointer data);
 static gboolean IDLE_enable_window(gpointer data);
@@ -467,15 +467,13 @@ static gpointer THREAD_login(gpointer data) {
     u8 msgno = LOGINUSER_REQUEST;
     NetPackLen(&G_hostctx.writebuf, "%b%s%s", msgno, username, password);
     int z = NetSend(G_hostctx.fd, &G_hostctx.writebuf);
-    gboolean is_remaining_write = FALSE;
-    if (z == 1)
-        is_remaining_write = TRUE;
-
-    z = wait_for_server_response(&G_hostctx, is_remaining_write, NULL, on_received_msg);
-    if (z == 0) {
-        StringAssignFormat(&G_ui.statusbar_text, "Success");
-        g_idle_add(IDLE_enable_window, NULL);
+    if (z == 1) {
+        z = wait_for_message_to_be_sent(G_hostctx.fd, &G_hostctx.writebuf, NULL);
+        if (z < 0)
+            return NULL;
     }
+
+    z = wait_for_response_message(G_hostctx.fd, NULL, on_received_msg);
 
     return NULL;
 }
@@ -709,15 +707,13 @@ static gpointer THREAD_search_users(gpointer data) {
     u8 msgno = SEARCHUSERNAME_REQUEST;
     NetPackLen(&G_hostctx.writebuf, "%b%s%s", msgno, CSTR(G_session.tok), searchstr);
     int z = NetSend(G_hostctx.fd, &G_hostctx.writebuf);
-    gboolean is_remaining_write = FALSE;
-    if (z == 1)
-        is_remaining_write = TRUE;
-
-    z = wait_for_server_response(&G_hostctx, is_remaining_write, NULL, on_received_msg);
-    if (z == 0) {
-        StringAssignFormat(&G_ui.statusbar_text, "Usernames returned");
-        g_idle_add(IDLE_enable_window, NULL);
+    if (z == 1) {
+        z = wait_for_message_to_be_sent(G_hostctx.fd, &G_hostctx.writebuf, NULL);
+        if (z < 0)
+            return NULL;
     }
+
+    z = wait_for_response_message(G_hostctx.fd, NULL, on_received_msg);
 
     return NULL;
 }
@@ -927,32 +923,19 @@ connected:
     return fd;
 }
 
-static int wait_for_server_response(HostCtx *hostctx, gboolean is_remaining_write, struct timeval *timeout, MSGCALLBACK on_recv_msg) {
+static int wait_for_message_to_be_sent(int fd, Buffer *writebuf, struct timeval *timeout_val) {
     int z;
-    fd_set readfds;
     fd_set writefds;
-    int maxfd = hostctx->fd;
+    int maxfd = fd;
 
-    FD_ZERO(&readfds);
     FD_ZERO(&writefds);
-    FD_SET(hostctx->fd, &readfds);
-    if (is_remaining_write)
-        FD_SET(hostctx->fd, &writefds);
+    FD_SET(fd, &writefds);
 
-    BufferClear(&hostctx->readbuf);
-    int msglen = 0;
-    int shut_rd = 0;
-
-    fd_set readfds0, writefds0;
     while (1) {
-        readfds0 = readfds;
-        writefds0 = writefds;
-        z = select(maxfd+1, &readfds0, &writefds0, NULL, timeout);
-        // timeout
+        z = select(maxfd+1, NULL, &writefds, NULL, timeout_val);
         if (z == 0) {
-            StringAssignFormat(&G_ui.statusbar_text, "Timeout connecting to '%s'", G_serverhost);
+            StringAssignFormat(&G_ui.statusbar_text, "Timeout during send");
             g_idle_add(IDLE_enable_window, NULL);
-            CloseSocketFull(hostctx->fd);
             return -1;
         }
         if (z == -1 && errno == EINTR)
@@ -961,75 +944,98 @@ static int wait_for_server_response(HostCtx *hostctx, gboolean is_remaining_writ
             fprintf(stderr, "select(): %s\n", strerror(errno));
             StringAssignFormat(&G_ui.statusbar_text, "Network error");
             g_idle_add(IDLE_enable_window, NULL);
-            CloseSocketFull(hostctx->fd);
-            hostctx->fd = -1;
+            return -1;
+        }
+        if (FD_ISSET(fd, &writefds)) {
+            z = NetSend(fd, writebuf);
+            if (z == 0)
+                goto ret;
+            if (z == -1) {
+                fprintf(stderr, "send(): %s\n", strerror(errno));
+                StringAssignFormat(&G_ui.statusbar_text, "Network error");
+                g_idle_add(IDLE_enable_window, NULL);
+                return -1;
+            }
+        }
+    }
+ret:
+    g_idle_add(IDLE_enable_window, NULL);
+    return 0;
+}
+
+static int wait_for_response_message(int fd, struct timeval *timeout_val, MSGCALLBACK on_recv_msg) {
+    int z;
+    fd_set readfds;
+    int maxfd = fd;
+
+    FD_ZERO(&readfds);
+    FD_SET(fd, &readfds);
+
+    Buffer readbuf = BufferNew(1024);
+    int msglen = 0;
+
+    while (1) {
+        z = select(maxfd+1, &readfds, NULL, NULL, timeout_val);
+        if (z == 0) {
+            StringAssignFormat(&G_ui.statusbar_text, "Timeout while waiting for response");
+            g_idle_add(IDLE_enable_window, NULL);
+
+            BufferFree(&readbuf);
+            return -1;
+        }
+        if (z == -1 && errno == EINTR)
+            continue;
+        if (z == -1) {
+            fprintf(stderr, "select(): %s\n", strerror(errno));
+            StringAssignFormat(&G_ui.statusbar_text, "Network error");
+            g_idle_add(IDLE_enable_window, NULL);
+
+            BufferFree(&readbuf);
             return -1;
         }
 
-        int read_eof = 0;
-        if (FD_ISSET(hostctx->fd, &readfds0)) {
-            if (NetRecv(hostctx->fd, &hostctx->readbuf) == 0)
-                read_eof = 1;
+        if (FD_ISSET(fd, &readfds)) {
+            if (NetRecv(fd, &readbuf) == 0)
+                goto server_eof;
 
             // Each message is a 16bit msglen value followed by msglen sequence of bytes.
             // A msglen of 0 means no more bytes remaining in the stream.
 
-            Buffer *readbuf = &hostctx->readbuf;
             while (1) {
                 if (msglen == 0) {
-                    if (readbuf->len >= sizeof(u16)) {
-                        u16 *bs = (u16 *) readbuf->bs;
+                    if (readbuf.len >= sizeof(u16)) {
+                        u16 *bs = (u16 *) readbuf.bs;
                         msglen = ntohs(*bs);
                         if (msglen == 0) {
-                            read_eof = 1;
-                            break;
+                            goto server_eof;
                         }
-                        BufferShift(readbuf, sizeof(u16));
+                        BufferShift(&readbuf, sizeof(u16));
                         continue;
                     }
                     break;
                 } else {
                     // Read msg body (msglen bytes)
-                    if (readbuf->len >= msglen) {
-                        on_recv_msg(readbuf->bs, msglen);
-                        BufferShift(readbuf, msglen);
-                        msglen = 0;
+                    if (readbuf.len >= msglen) {
+                        on_recv_msg(readbuf.bs, msglen);
+                        BufferShift(&readbuf, msglen);
                         goto success;
                     }
                     break;
                 }
             }
-            if (read_eof) {
-                FD_CLR(hostctx->fd, &readfds);
-                shut_rd = 1;
-
-                // Close serverfd if no remaining reads and writes.
-                if (hostctx->writebuf.len == 0) {
-                    FD_CLR(hostctx->fd, &writefds);
-                    CloseSocketFull(hostctx->fd);
-                    hostctx->fd = -1;
-                    goto error;
-                }
-            }
-        }
-        if (FD_ISSET(hostctx->fd, &writefds0)) {
-            z = NetSend2(hostctx->fd, &hostctx->writebuf, &writefds, &maxfd);
-
-            // Close serverfd if no remaining reads and writes.
-            if (z == 0 && shut_rd) {
-                CloseSocketFull(hostctx->fd);
-                hostctx->fd = -1;
-                goto error;
-            }
         }
     }
 
-error:
+server_eof:
+    CloseSocketFull(fd);
     StringAssignFormat(&G_ui.statusbar_text, "Server returned no response");
     g_idle_add(IDLE_enable_window, NULL);
+
+    BufferFree(&readbuf);
     return -1;
 
 success:
+    BufferFree(&readbuf);
     return 0;
 }
 
