@@ -924,6 +924,12 @@ connected:
 }
 
 static int wait_for_message_to_be_sent(int fd, Buffer *writebuf, struct timeval *timeout_val) {
+    if (fd == -1) {
+        fd = connect_to_server(G_serverhost, G_serverport);
+        if (fd == -1)
+            return -1;
+    }
+
     int z;
     fd_set writefds;
     int maxfd = fd;
