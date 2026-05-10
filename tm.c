@@ -93,6 +93,7 @@ static gboolean SF_show_connect_error(gpointer data);
 
 static gboolean IDLE_LoginUserResponse(gpointer data);
 static gboolean IDLE_RegisterUserResponse(gpointer data);
+static gboolean IDLE_SearchUsernameResponse(gpointer data);
 
 int G_serverfd = -1;
 char *G_serverhost = "localhost";
@@ -553,6 +554,13 @@ static void on_received_msg(char *msgbytes, u16 len) {
         printf("** REGISTERUSER_RESPONSE tok: '%s' username: '%s' retno: %d errortext: '%s' **\n", resp->tok.bs, resp->username.bs, resp->retno, resp->errortext.bs);
 
         g_idle_add(IDLE_RegisterUserResponse, resp);
+    } else if (msgno == SEARCHUSERNAME_RESPONSE) {
+        SearchUsernameResponse *resp = malloc0(sizeof(SearchUsernameResponse));
+        resp->msgno = msgno;
+        NetUnpack(msgbytes, len, "%s", &resp->usernames);
+        printf("** SEARCHUSERNAME_RESPONSE usernames: '%s' **\n", CSTR(resp->usernames));
+
+        g_idle_add(IDLE_SearchUsernameResponse, resp);
     }
 }
 
@@ -605,6 +613,13 @@ static gboolean IDLE_RegisterUserResponse(gpointer data) {
     StringFree(&resp->errortext);
     free(resp);
 
+    return G_SOURCE_REMOVE;
+}
+
+static gboolean IDLE_SearchUsernameResponse(gpointer data) {
+    SearchUsernameResponse *resp = data;
+
+    gtk_widget_set_sensitive(G_mainwin, TRUE);
     return G_SOURCE_REMOVE;
 }
 

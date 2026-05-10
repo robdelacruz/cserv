@@ -72,11 +72,12 @@ void initdb(char *dbfile) {
         panic(errstr);
 }
 
-int RegisterUser(String username, String pwd, String *tok) {
+int RegisterUser(String username, String pwd, String *ret_tok, String *ret_pwdhash) {
     char *s;
     sqlite3_stmt *stmt;
 
-    StringAssign(tok, "");
+    StringAssign(ret_tok, "");
+    StringAssign(ret_pwdhash, "");
 
     // Return error if username already exists.
     s = "SELECT userid FROM user WHERE username = ?";
@@ -98,19 +99,21 @@ int RegisterUser(String username, String pwd, String *tok) {
         StringFree(&pwdhash);
         return -2;
     }
-    sqlite3_finalize(stmt);
 
-    generate_token(username, pwdhash, tok);
+    generate_token(username, pwdhash, ret_tok);
+    StringAssign(ret_pwdhash, CSTR(pwdhash));
+
     StringFree(&pwdhash);
+    sqlite3_finalize(stmt);
     return 0;
 }
 
-int LoginUser(String username, String pwd, String *tok) {
-    printf("LoginUser() username: '%s' pwd: '%s'\n", username.bs, pwd.bs);
+int LoginUser(String username, String pwd, String *ret_tok, String *ret_pwdhash) {
     char *s;
     sqlite3_stmt *stmt;
 
-    StringAssign(tok, "");
+    StringAssign(ret_tok, "");
+    StringAssign(ret_pwdhash, "");
 
     // Return error if username doesn't exist.
     s = "SELECT password FROM user WHERE username = ?";
@@ -125,11 +128,13 @@ int LoginUser(String username, String pwd, String *tok) {
     char *pwdhash = (char *) sqlite3_column_text(stmt, 0);
     if (!password_verify(pwd, STRING(pwdhash))) {
         sqlite3_finalize(stmt);
-        return -2;
+        return -1;
     }
 
+    generate_token(username, STRING(pwdhash), ret_tok);
+    StringAssign(ret_pwdhash, pwdhash);
+
     sqlite3_finalize(stmt);
-    generate_token(username, pwd, tok);
     return 0;
 }
 

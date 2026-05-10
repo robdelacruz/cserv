@@ -212,16 +212,19 @@ void on_host_recv_msg(HostCtx *hostctx, char *msgbytes, u16 len, fd_set *writefd
     if (msgno == REGISTERUSER_REQUEST) {
         String username = StringNew0();
         String pwd = StringNew0();
+        String pwdhash = StringNew0();
         String tok = StringNew0();
         String errortext = StringNew0();
 
         NetUnpack(msgbytes, len, "%s%s", &username, &pwd);
         printf("** REGISTERUSER_REQUEST username: '%s' pwd: '%s' **\n", CSTR(username), CSTR(pwd));
 
-        z = RegisterUser(username, pwd, &tok);
-        if (z == 0)
+        z = RegisterUser(username, pwd, &tok, &pwdhash);
+        if (z == 0) {
             StringAssign(&errortext, "OK");
-        else if (z == -1)
+            StringAssign(&hostctx->username, CSTR(username));
+            StringAssign(&hostctx->pwdhash, CSTR(pwdhash));
+        } else if (z == -1)
             StringAssignFormat(&errortext, "Username '%s' already taken", username.bs);
         else
             StringAssign(&errortext, "Error creating new user");
@@ -231,42 +234,68 @@ void on_host_recv_msg(HostCtx *hostctx, char *msgbytes, u16 len, fd_set *writefd
 
         StringFree(&username);
         StringFree(&pwd);
+        StringFree(&pwdhash);
         StringFree(&tok);
         StringFree(&errortext);
     } else if (msgno == LOGINUSER_REQUEST) {
         String username = StringNew0();
         String pwd = StringNew0();
+        String pwdhash = StringNew0();
         String tok = StringNew0();
         String errortext = StringNew0();
 
         NetUnpack(msgbytes, len, "%s%s", &username, &pwd);
         printf("** LOGIN_REQUEST username: '%s' pwd: '%s' **\n", CSTR(username), CSTR(pwd));
 
-        z = LoginUser(username, pwd, &tok);
+        z = LoginUser(username, pwd, &tok, &pwdhash);
         if (z == 0) {
             StringAssign(&errortext, "OK");
-            StringAssign(&hostctx->username, username.bs);
-        } else if (z == -1)
-            StringAssign(&errortext, "User doesn't exist");
-        else
+            StringAssign(&hostctx->username, CSTR(username));
+            StringAssign(&hostctx->pwdhash, CSTR(pwdhash));
+        } else {
             StringAssign(&errortext, "Login incorrect");
+        }
 
         NetPackLen(&hostctx->writebuf, "%b%s%s%b%s", LOGINUSER_RESPONSE, tok.bs, username.bs, z, errortext.bs);
         NetSend2(hostctx->fd, &hostctx->writebuf, writefds, maxfd);
 
         StringFree(&username);
         StringFree(&pwd);
+        StringFree(&pwdhash);
         StringFree(&tok);
         StringFree(&errortext);
     } else if (msgno == GETCONTACTS_REQUEST) {
         String tok = StringNew0();
 
         NetUnpack(msgbytes, len, "%s", &tok);
-//        if (!validate_token(hostctx.username, hostctx.pwdhash, tok)) {
-//        }
 
         StringFree(&tok);
     } else if (msgno == SEARCHUSERNAME_REQUEST) {
+        String tok = StringNew0();
+        String searchtext = StringNew0();
+        String usernames_csv = StringNew0();
+
+        NetUnpack(msgbytes, len, "%s%s", &tok, &searchtext);
+        printf("** SEARCHUSERNAME_REQUEST searchtext: '%s' **\n", CSTR(searchtext));
+
+        if (validate_token(hostctx->username, hostctx->pwdhash, tok)) {
+            sqlite3_stmt *stmt;
+            char *s = "SELECT userid, username FROM user WHERE username LIKE '%' || ? || '%'";
+            sqlite3_prepare_v2(db, s, -1, &stmt, 0);
+            sqlite3_bind_text(stmt, 1, CSTR(searchtext), -1, NULL);
+            while (sqlite3_step(stmt) == SQLITE_ROW) {
+                StringAppend(&usernames_csv, (char *) sqlite3_column_text(stmt, 1));
+                StringAppend(&usernames_csv, ",");
+            }
+            sqlite3_finalize(stmt);
+        }
+
+        NetPackLen(&hostctx->writebuf, "%b%s", SEARCHUSERNAME_RESPONSE, CSTR(usernames_csv));
+        NetSend2(hostctx->fd, &hostctx->writebuf, writefds, maxfd);
+
+        StringFree(&tok);
+        StringFree(&searchtext);
+        StringFree(&usernames_csv);
     }
 }
 
