@@ -53,7 +53,9 @@ typedef struct {
 
 typedef void (*MSGCALLBACK)(char *msgbytes, u16 len);
 
-static int connect_to_server(char *serverhost, char *serverport);
+static int connect_to_server(char *serverhost, char *serverport, struct timeval *timeout_val);
+static int connect_to_server2(char *serverhost, char *serverport, struct timeval *timeout_val, int *serverfd);
+static void send_and_wait_for_response(int fd, Buffer *buf, struct timeval *timeout_val, MSGCALLBACK on_recv_msg);
 static int wait_for_message_to_be_sent(int fd, Buffer *writebuf, struct timeval *timeout_val);
 static int wait_for_response_message(int fd, struct timeval *timeout_val, MSGCALLBACK on_recv_msg);
 
@@ -98,6 +100,8 @@ char *G_serverport = "8000";
 GtkWidget *G_mainwin = NULL;
 UIState G_ui = {0};
 Session G_session = {0};
+struct timeval G_connect_timeout_val = {8, 0};
+struct timeval G_timeout_val = {2, 0};
 
 fd_set G_readfds, G_writefds;
 int G_maxfd=0;
@@ -241,29 +245,21 @@ static void CALLBACK_login_clicked(GtkWidget *w, gpointer data) {
     g_thread_new("THREAD_login", THREAD_login, NULL);
 }
 static gpointer THREAD_login(gpointer data) {
-    if (G_serverfd == -1) {
-        G_serverfd = connect_to_server(G_serverhost, G_serverport);
-        if (G_serverfd == -1)
-            return NULL;
-    }
+    if (connect_to_server2(G_serverhost, G_serverport, &G_connect_timeout_val, &G_serverfd) == -1)
+        return NULL;
+    assert(G_serverfd != -1);
 
     StringAssignFormat(&G_ui.statusbar_text, "Logging in...");
     g_idle_add(IDLE_disable_window, NULL);
 
+    Buffer writebuf = BufferNew(256);
+
     char *username = (char *) gtk_entry_get_text(GTK_ENTRY(G_ui.login_txtusername));
     char *password = (char *) gtk_entry_get_text(GTK_ENTRY(G_ui.login_txtpassword));
-    Buffer writebuf = BufferNew(256);
     u8 msgno = LOGINUSER_REQUEST;
     NetPackLen(&writebuf, "%b%s%s", msgno, username, password);
-    int z = NetSend(G_serverfd, &writebuf);
-    if (z == 1) {
-        z = wait_for_message_to_be_sent(G_serverfd, &writebuf, NULL);
-        if (z < 0)
-            goto ret;
-    }
-    z = wait_for_response_message(G_serverfd, NULL, on_received_msg);
+    send_and_wait_for_response(G_serverfd, &writebuf, &G_timeout_val, on_received_msg);
 
-ret:
     BufferFree(&writebuf);
     return NULL;
 }
@@ -330,24 +326,23 @@ static void CALLBACK_register_clicked(GtkWidget *w, gpointer data) {
     g_thread_new("THREAD_register", THREAD_register, NULL);
 }
 static gpointer THREAD_register(gpointer data) {
-    if (G_hostctx.fd == -1) {
-        THREAD_connect(THREAD_register);
+    if (connect_to_server2(G_serverhost, G_serverport, &G_connect_timeout_val, &G_serverfd) == -1)
         return NULL;
-    }
+    assert(G_serverfd != -1);
 
     StringAssignFormat(&G_ui.statusbar_text, "Sending request...");
     g_idle_add(IDLE_disable_window, NULL);
+
+    Buffer writebuf = BufferNew(256);
 
     char *username = (char *) gtk_entry_get_text(GTK_ENTRY(G_ui.register_txtusername));
     char *password = (char *) gtk_entry_get_text(GTK_ENTRY(G_ui.register_txtpassword));
     char *password2 = (char *) gtk_entry_get_text(GTK_ENTRY(G_ui.register_txtpassword2));
     u8 msgno = REGISTERUSER_REQUEST;
-    NetPackLen(&G_hostctx.writebuf, "%b%s%s", msgno, username, password);
-    int z = NetSend2(G_hostctx.fd, &G_hostctx.writebuf, &G_writefds, &G_maxfd);
+    NetPackLen(&writebuf, "%b%s%s", msgno, username, password);
+    send_and_wait_for_response(G_serverfd, &writebuf, &G_timeout_val, on_received_msg);
 
-    StringAssignFormat(&G_ui.statusbar_text, "Waiting for response...");
-    g_idle_add(IDLE_disable_window, NULL);
-
+    BufferFree(&writebuf);
     return NULL;
 }
 
@@ -484,27 +479,21 @@ static void CALLBACK_search_users(GtkWidget *w, gpointer data) {
     g_thread_new("THREAD_search_users", THREAD_search_users, NULL);
 }
 static gpointer THREAD_search_users(gpointer data) {
-    if (G_hostctx.fd == -1) {
-        G_hostctx.fd = connect_to_server(G_serverhost, G_serverport);
-        if (G_hostctx.fd == -1)
-            return NULL;
-    }
+    if (connect_to_server2(G_serverhost, G_serverport, &G_connect_timeout_val, &G_serverfd) == -1)
+        return NULL;
+    assert(G_serverfd != -1);
 
     StringAssignFormat(&G_ui.statusbar_text, "Searching...");
     g_idle_add(IDLE_disable_window, NULL);
 
+    Buffer writebuf = BufferNew(256);
+
     char *searchstr = (char *) gtk_entry_get_text(GTK_ENTRY(G_ui.invite_txtsearch));
     u8 msgno = SEARCHUSERNAME_REQUEST;
-    NetPackLen(&G_hostctx.writebuf, "%b%s%s", msgno, CSTR(G_session.tok), searchstr);
-    int z = NetSend(G_hostctx.fd, &G_hostctx.writebuf);
-    if (z == 1) {
-        z = wait_for_message_to_be_sent(G_hostctx.fd, &G_hostctx.writebuf, NULL);
-        if (z < 0)
-            return NULL;
-    }
+    NetPackLen(&writebuf, "%b%s%s", msgno, CSTR(G_session.tok), searchstr);
+    send_and_wait_for_response(G_serverfd, &writebuf, &G_timeout_val, on_received_msg);
 
-    z = wait_for_response_message(G_hostctx.fd, NULL, on_received_msg);
-
+    BufferFree(&writebuf);
     return NULL;
 }
 
@@ -619,7 +608,7 @@ static gboolean IDLE_RegisterUserResponse(gpointer data) {
     return G_SOURCE_REMOVE;
 }
 
-static int connect_to_server(char *serverhost, char *serverport) {
+static int connect_to_server(char *serverhost, char *serverport, struct timeval *timeout_val) {
     int z;
     struct addrinfo hints, *ai=NULL;
     memset(&hints, 0, sizeof(hints));
@@ -630,7 +619,7 @@ static int connect_to_server(char *serverhost, char *serverport) {
     StringAssignFormat(&G_ui.statusbar_text, "Connecting to %s...'", serverhost);
     g_idle_add(IDLE_disable_window, NULL);
 
-    // getaddrinfo() will block if an unreachable serverhost (Ex. 'abcdomain') is given.
+    // getaddrinfo() will block for some time if an unreachable serverhost (Ex. 'abcdomain') is given.
     z = getaddrinfo0(serverhost, serverport, &hints, &ai);
     if (z != 0) {
         StringAssignFormat(&G_ui.statusbar_text, "Can't reach server '%s'", serverhost);
@@ -665,11 +654,8 @@ static int connect_to_server(char *serverhost, char *serverport) {
         FD_SET(fd, &writefds);
 
         while (1) {
-//            g_usleep(2000000);
-            struct timeval timeout = {2, 0}; // timeout in 2 seconds
-            int zz = select(fd+1, NULL, &writefds, NULL, &timeout);
+            int zz = select(fd+1, NULL, &writefds, NULL, timeout_val);
             if (zz == 0) {
-                // Handle timeout
                 StringAssignFormat(&G_ui.statusbar_text, "Timeout connecting to '%s'", serverhost);
                 g_idle_add(IDLE_enable_window, NULL);
 
@@ -712,7 +698,25 @@ connected:
 
     return fd;
 }
+static int connect_to_server2(char *serverhost, char *serverport, struct timeval *timeout_val, int *serverfd) {
+    if (*serverfd != -1)
+        return 0;
+    *serverfd = connect_to_server(serverhost, serverport, timeout_val);
+    return *serverfd;
+}
 
+static void send_and_wait_for_response(int fd, Buffer *buf, struct timeval *timeout_val, MSGCALLBACK on_recv_msg) {
+    int z = NetSend(fd, buf);
+    if (z == -1) {
+        StringAssignFormat(&G_ui.statusbar_text, "Network error");
+        g_idle_add(IDLE_enable_window, NULL);
+        return;
+    } else if (z == 1) {
+        if (wait_for_message_to_be_sent(fd, buf, timeout_val) == -1)
+            return;
+    }
+    wait_for_response_message(fd, timeout_val, on_recv_msg);
+}
 static int wait_for_message_to_be_sent(int fd, Buffer *writebuf, struct timeval *timeout_val) {
     int z;
     fd_set writefds;
@@ -741,7 +745,6 @@ static int wait_for_message_to_be_sent(int fd, Buffer *writebuf, struct timeval 
             if (z == 0)
                 goto ret;
             if (z == -1) {
-                fprintf(stderr, "send(): %s\n", strerror(errno));
                 StringAssignFormat(&G_ui.statusbar_text, "Network error");
                 g_idle_add(IDLE_enable_window, NULL);
                 return -1;
@@ -802,7 +805,8 @@ static int wait_for_response_message(int fd, struct timeval *timeout_val, MSGCAL
                 } else {
                     // Read msg body (msglen bytes)
                     if (readbuf.len >= msglen) {
-                        on_recv_msg(readbuf.bs, msglen);
+                        if (on_recv_msg)
+                            on_recv_msg(readbuf.bs, msglen);
                         BufferShift(&readbuf, msglen);
                         goto success;
                     }
