@@ -57,6 +57,7 @@ static int connect_to_server(char *serverhost, char *serverport);
 static int wait_for_message_to_be_sent(int fd, Buffer *writebuf, struct timeval *timeout_val);
 static int wait_for_response_message(int fd, struct timeval *timeout_val, MSGCALLBACK on_recv_msg);
 
+static gpointer THREAD_connect(gpointer data);
 static gboolean IDLE_enable_window(gpointer data);
 static gboolean IDLE_disable_window(gpointer data);
 static void update_connect_fail_ui();
@@ -92,12 +93,12 @@ static gboolean SF_show_connect_error(gpointer data);
 static gboolean IDLE_LoginUserResponse(gpointer data);
 static gboolean IDLE_RegisterUserResponse(gpointer data);
 
-int G_serverfd = -1;
 char *G_serverhost = "localhost";
 char *G_serverport = "8000";
 GtkWidget *G_mainwin = NULL;
 UIState G_ui = {0};
 Session G_session = {0};
+HostCtx G_hostctx = {0};
 
 fd_set G_readfds, G_writefds;
 int G_maxfd=0;
@@ -109,6 +110,8 @@ int main(int argc, char *argv[]) {
         G_serverhost = argv[1];
     if (argc > 2)
         G_serverport = argv[2];
+
+    G_hostctx = HostCtxNew(-1);
 
     // Main window
     G_mainwin = gtk_window_new(GTK_WINDOW_TOPLEVEL);
@@ -140,10 +143,197 @@ int main(int argc, char *argv[]) {
 
     create_login_ui(username, password, autologin);
 
+    if (!autologin)
+        g_thread_new("THREAD_connect", THREAD_connect, NULL);
+
     gtk_main();
     return 0;
 }
 
+static gpointer THREAD_connect(gpointer data) {
+    printf("THREAD_connect()\n");
+    int z;
+
+    struct addrinfo hints, *ai=NULL;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = AI_PASSIVE;
+
+    StringAssignFormat(&G_ui.statusbar_text, "Connecting to %s...'", G_serverhost);
+    g_idle_add(IDLE_disable_window, NULL);
+
+    // getaddrinfo() will block if an unreachable serverhost (Ex. 'abcdomain') is given.
+    z = getaddrinfo0(G_serverhost, G_serverport, &hints, &ai);
+    if (z != 0) {
+        StringAssignFormat(&G_ui.statusbar_text, "Can't reach server '%s'", G_serverhost);
+        g_idle_add(IDLE_enable_window, NULL);
+
+        freeaddrinfo(ai);
+        return NULL;
+    }
+    int fd = socket0(ai->ai_family, ai->ai_socktype | SOCK_NONBLOCK, ai->ai_protocol);
+    if (fd == -1) {
+        StringAssignFormat(&G_ui.statusbar_text, "Can't create socket for '%s'", G_serverhost);
+        g_idle_add(IDLE_enable_window, NULL);
+
+        freeaddrinfo(ai);
+        return NULL;
+    }
+    int yes=1;
+    setsockopt0(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+
+    z = connect0(fd, ai->ai_addr, ai->ai_addrlen);
+    freeaddrinfo(ai);
+    if (z == 0)
+        goto connected;
+    if (z < 0 && errno != EINPROGRESS) {
+        update_connect_fail_ui();
+        CloseSocketFull(fd);
+        return NULL;
+    }
+    if (z == -1 && errno == EINPROGRESS) {
+        fd_set writefds;
+        FD_ZERO(&writefds);
+        FD_SET(fd, &writefds);
+
+        while (1) {
+//            g_usleep(2000000);
+            struct timeval timeout = {2, 0}; // timeout in 2 seconds
+            int zz = select(fd+1, NULL, &writefds, NULL, &timeout);
+            if (zz == 0) {
+                // Handle timeout
+                StringAssignFormat(&G_ui.statusbar_text, "Timeout connecting to '%s'", G_serverhost);
+                g_idle_add(IDLE_enable_window, NULL);
+
+                CloseSocketFull(fd);
+                return NULL;
+            }
+            if (zz == -1 && errno == EINTR)
+                continue;
+            if (zz == -1) {
+                fprintf(stderr, "select(): %s\n", strerror(errno));
+                update_connect_fail_ui();
+                CloseSocketFull(fd);
+                return NULL;
+            }
+            assert(zz > 0);
+            break;
+        }
+        assert(FD_ISSET(fd, &writefds));
+
+        int err=0;
+        socklen_t errlen = sizeof(err);
+        int zz = getsockopt0(fd, SOL_SOCKET, SO_ERROR, &err, &errlen);
+        if (zz != 0) {
+            fprintf(stderr, "nonblocking connect() error: getsockopt() failed\n");
+            update_connect_fail_ui();
+            CloseSocketFull(fd);
+            return NULL;
+        } else if (err != 0) {
+            fprintf(stderr, "nonblocking connect() error: %s\n", strerror(err));
+            update_connect_fail_ui();
+            CloseSocketFull(fd);
+            return NULL;
+        }
+    }
+
+connected:
+    // Socket connected
+    StringAssignFormat(&G_ui.statusbar_text, "Connected to %s", G_serverhost);
+    g_idle_add(IDLE_enable_window, NULL);
+
+    if (G_hostctx.fd != -1) {
+        CloseSocketFull(G_hostctx.fd);
+    }
+    G_hostctx.fd = fd;
+
+    FD_ZERO(&G_readfds);
+    FD_ZERO(&G_writefds);
+    FD_SET(fd, &G_readfds);
+    G_maxfd = fd;
+
+    GThreadFunc nextfunc = (GThreadFunc) data;
+    if (nextfunc)
+        g_thread_new("THREAD_connect_nextfunc", nextfunc, NULL);
+
+    fd_set readfds0, writefds0;
+    while (1) {
+        readfds0 = G_readfds;
+        writefds0 = G_writefds;
+        z = select(G_maxfd+1, &readfds0, &writefds0, NULL, NULL);
+        if (z == 0) // timeout
+            continue;
+        if (z == -1 && errno == EINTR)
+            continue;
+        if (z == -1) {
+            fprintf(stderr, "select(): %s\n", strerror(errno));
+            break;
+        }
+
+        int read_eof = 0;
+        if (FD_ISSET(fd, &readfds0)) {
+            if (NetRecv(fd, &G_hostctx.readbuf) == 0)
+                read_eof = 1;
+
+            // Each message is a 16bit msglen value followed by msglen sequence of bytes.
+            // A msglen of 0 means no more bytes remaining in the stream.
+
+            Buffer *readbuf = &G_hostctx.readbuf;
+            while (1) {
+                if (G_hostctx.msglen == 0) {
+                    if (readbuf->len >= sizeof(u16)) {
+                        u16 *bs = (u16 *) readbuf->bs;
+                        G_hostctx.msglen = ntohs(*bs);
+                        if (G_hostctx.msglen == 0) {
+                            read_eof = 1;
+                            break;
+                        }
+                        BufferShift(readbuf, sizeof(u16));
+                        continue;
+                    }
+                    break;
+                } else {
+                    // Read msg body (msglen bytes)
+                    if (readbuf->len >= G_hostctx.msglen) {
+                        on_received_msg(readbuf->bs, G_hostctx.msglen);
+                        BufferShift(readbuf, G_hostctx.msglen);
+                        G_hostctx.msglen = 0;
+                        continue;
+                    }
+                    break;
+                }
+            }
+            if (read_eof) {
+                on_read_eof();
+                FD_CLR(fd, &G_readfds);
+                G_hostctx.shut_rd = 1;
+
+                // Close serverfd if no remaining reads and writes.
+                if (G_hostctx.writebuf.len == 0) {
+                    FD_CLR(fd, &G_writefds);
+                    CloseSocketFull(fd);
+                    goto ret;
+                }
+            }
+        }
+        if (FD_ISSET(fd, &writefds0)) {
+            z = NetSend2(fd, &G_hostctx.writebuf, &G_writefds, &G_maxfd);
+
+            // Close serverfd if no remaining reads and writes.
+            if (z == 0 && G_hostctx.shut_rd) {
+                CloseSocketFull(fd);
+                goto ret;
+            }
+        }
+    }
+ret:
+    on_server_close();
+
+    // If control reached here, it means server socket was closed.
+    G_hostctx.fd = -1;
+    return NULL;
+}
 static gboolean IDLE_enable_window(gpointer data) {
     set_statusbar_message(GTK_STATUSBAR(G_ui.statusbar), 0, G_ui.statusbar_text.bs);
     gtk_widget_set_sensitive(G_mainwin, TRUE);
@@ -240,10 +430,32 @@ static void CALLBACK_login_clicked(GtkWidget *w, gpointer data) {
 
     g_thread_new("THREAD_login", THREAD_login, NULL);
 }
+#if 0
 static gpointer THREAD_login(gpointer data) {
-    if (G_serverfd == -1) {
-        G_serverfd = connect_to_server(G_serverhost, G_serverport);
-        if (G_serverfd == -1)
+    if (G_hostctx.fd == -1) {
+        THREAD_connect(THREAD_login);
+        return NULL;
+    }
+
+    StringAssignFormat(&G_ui.statusbar_text, "Logging in...");
+    g_idle_add(IDLE_disable_window, NULL);
+
+    char *username = (char *) gtk_entry_get_text(GTK_ENTRY(G_ui.login_txtusername));
+    char *password = (char *) gtk_entry_get_text(GTK_ENTRY(G_ui.login_txtpassword));
+    u8 msgno = LOGINUSER_REQUEST;
+    NetPackLen(&G_hostctx.writebuf, "%b%s%s", msgno, username, password);
+    int z = NetSend2(G_hostctx.fd, &G_hostctx.writebuf, &G_writefds, &G_maxfd);
+
+    StringAssignFormat(&G_ui.statusbar_text, "Waiting for response...");
+    g_idle_add(IDLE_disable_window, NULL);
+
+    return NULL;
+}
+#endif
+static gpointer THREAD_login(gpointer data) {
+    if (G_hostctx.fd == -1) {
+        G_hostctx.fd = connect_to_server(G_serverhost, G_serverport);
+        if (G_hostctx.fd == -1)
             return NULL;
     }
 
@@ -252,19 +464,17 @@ static gpointer THREAD_login(gpointer data) {
 
     char *username = (char *) gtk_entry_get_text(GTK_ENTRY(G_ui.login_txtusername));
     char *password = (char *) gtk_entry_get_text(GTK_ENTRY(G_ui.login_txtpassword));
-    Buffer writebuf = BufferNew(256);
     u8 msgno = LOGINUSER_REQUEST;
-    NetPackLen(&writebuf, "%b%s%s", msgno, username, password);
-    int z = NetSend(G_serverfd, &writebuf);
+    NetPackLen(&G_hostctx.writebuf, "%b%s%s", msgno, username, password);
+    int z = NetSend(G_hostctx.fd, &G_hostctx.writebuf);
     if (z == 1) {
-        z = wait_for_message_to_be_sent(G_serverfd, &writebuf, NULL);
+        z = wait_for_message_to_be_sent(G_hostctx.fd, &G_hostctx.writebuf, NULL);
         if (z < 0)
-            goto ret;
+            return NULL;
     }
-    z = wait_for_response_message(G_serverfd, NULL, on_received_msg);
 
-ret:
-    BufferFree(&writebuf);
+    z = wait_for_response_message(G_hostctx.fd, NULL, on_received_msg);
+
     return NULL;
 }
 
@@ -714,6 +924,12 @@ connected:
 }
 
 static int wait_for_message_to_be_sent(int fd, Buffer *writebuf, struct timeval *timeout_val) {
+    if (fd == -1) {
+        fd = connect_to_server(G_serverhost, G_serverport);
+        if (fd == -1)
+            return -1;
+    }
+
     int z;
     fd_set writefds;
     int maxfd = fd;
@@ -769,7 +985,9 @@ static int wait_for_response_message(int fd, struct timeval *timeout_val, MSGCAL
         if (z == 0) {
             StringAssignFormat(&G_ui.statusbar_text, "Timeout while waiting for response");
             g_idle_add(IDLE_enable_window, NULL);
-            goto error;
+
+            BufferFree(&readbuf);
+            return -1;
         }
         if (z == -1 && errno == EINTR)
             continue;
@@ -777,7 +995,9 @@ static int wait_for_response_message(int fd, struct timeval *timeout_val, MSGCAL
             fprintf(stderr, "select(): %s\n", strerror(errno));
             StringAssignFormat(&G_ui.statusbar_text, "Network error");
             g_idle_add(IDLE_enable_window, NULL);
-            goto error;
+
+            BufferFree(&readbuf);
+            return -1;
         }
 
         if (FD_ISSET(fd, &readfds)) {
@@ -817,7 +1037,6 @@ server_eof:
     StringAssignFormat(&G_ui.statusbar_text, "Server returned no response");
     g_idle_add(IDLE_enable_window, NULL);
 
-error:
     BufferFree(&readbuf);
     return -1;
 
